@@ -1,18 +1,29 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+"""
+Home Manager API Service
+"""
+
+import sys
+from pathlib import Path
 from typing import Optional, List
-from datetime import datetime, date
 
-app = FastAPI(title="Home Manager API", version="0.1.0")
+from pydantic import BaseModel
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+# Add common package to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from common import create_app, ServiceConfig, day_name_from_date
+
+# Service configuration
+config = ServiceConfig(
+    name="home-manager",
+    title="Home Manager API",
+    version="0.1.0",
+    description="Weekly home task management and goal tracking",
+    port=8020,
 )
+
+app = create_app(config)
+
 
 # Models
 class Task(BaseModel):
@@ -25,6 +36,7 @@ class Task(BaseModel):
     completed: bool = False
     estimated_minutes: Optional[int] = None
 
+
 class Goal(BaseModel):
     id: str
     title: str
@@ -34,18 +46,21 @@ class Goal(BaseModel):
     progress: Optional[int] = 0
     is_active: bool = True
 
+
 class WeeklyTasks(BaseModel):
     user_id: str
     week_start: Optional[str] = None
     tasks: List[Task]
+
 
 class DailyTasks(BaseModel):
     user_id: str
     day: str
     tasks: List[Task]
 
-# Default data
-def _default_weekly_tasks(user_id: str):
+
+# Mock data
+def _default_weekly_tasks(user_id: str) -> dict:
     tasks = [
         {"id": "1", "title": "Laundry", "day": "Monday", "category": "chores", "priority": "high", "completed": False, "estimated_minutes": 60},
         {"id": "2", "title": "Grocery Shopping", "day": "Monday", "category": "errands", "priority": "high", "completed": False, "estimated_minutes": 90},
@@ -64,8 +79,9 @@ def _default_weekly_tasks(user_id: str):
     ]
     return {"user_id": user_id, "tasks": tasks}
 
-def _default_goals(user_id: str):
-    goals = [
+
+def _default_goals(user_id: str) -> list:
+    return [
         {
             "id": "g1",
             "title": "Organize Garage",
@@ -73,7 +89,7 @@ def _default_goals(user_id: str):
             "category": "organizing",
             "target_date": "2025-12-31",
             "progress": 25,
-            "is_active": True
+            "is_active": True,
         },
         {
             "id": "g2",
@@ -82,7 +98,7 @@ def _default_goals(user_id: str):
             "category": "cleaning",
             "target_date": "2025-12-15",
             "progress": 40,
-            "is_active": True
+            "is_active": True,
         },
         {
             "id": "g3",
@@ -91,66 +107,56 @@ def _default_goals(user_id: str):
             "category": "cooking",
             "target_date": "2025-11-30",
             "progress": 60,
-            "is_active": True
+            "is_active": True,
         },
     ]
-    return goals
 
-def _day_name_from_date_str(date_str: Optional[str]) -> str:
-    if date_str:
-        try:
-            d = datetime.fromisoformat(date_str).date()
-        except Exception:
-            try:
-                d = datetime.strptime(date_str, "%Y-%m-%d").date()
-            except Exception:
-                d = date.today()
-    else:
-        d = date.today()
-    return d.strftime("%A")
 
 # Endpoints
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-@app.get("/ready")
-async def ready():
-    return {"status": "ready"}
-
-@app.get("/tasks/weekly/{user_id}")
+@app.get("/tasks/weekly/{user_id}", tags=["Tasks"])
 async def get_weekly_tasks(user_id: str, week_start: Optional[str] = None):
-    """Get all tasks for the week"""
+    """Get all tasks for the week."""
     data = _default_weekly_tasks(user_id)
     if week_start:
         data["week_start"] = week_start
     return data
 
-@app.get("/tasks/today/{user_id}")
+
+@app.get("/tasks/today/{user_id}", tags=["Tasks"])
 async def get_today_tasks(user_id: str, date: Optional[str] = None):
-    """Get tasks for today (or specified date)"""
-    day_name = _day_name_from_date_str(date)
+    """Get tasks for today (or specified date)."""
+    day_name = day_name_from_date(date)
     all_tasks = _default_weekly_tasks(user_id)
 
     today_tasks = [task for task in all_tasks["tasks"] if task.get("day") == day_name]
-    return {"user_id": user_id, "day": day_name, "tasks": today_tasks}
+    total_minutes = sum(t.get("estimated_minutes", 0) for t in today_tasks)
 
-@app.get("/tasks/category/{user_id}/{category}")
+    return {
+        "user_id": user_id,
+        "day": day_name,
+        "tasks": today_tasks,
+        "total_estimated_minutes": total_minutes,
+    }
+
+
+@app.get("/tasks/category/{user_id}/{category}", tags=["Tasks"])
 async def get_tasks_by_category(user_id: str, category: str):
-    """Get all tasks in a specific category"""
+    """Get all tasks in a specific category."""
     all_tasks = _default_weekly_tasks(user_id)
     filtered = [task for task in all_tasks["tasks"] if task.get("category") == category]
     return {"user_id": user_id, "category": category, "tasks": filtered}
 
-@app.get("/goals/{user_id}")
+
+@app.get("/goals/{user_id}", tags=["Goals"])
 async def get_goals(user_id: str):
-    """Get all goals for user"""
+    """Get all goals for user."""
     goals = _default_goals(user_id)
     return {"user_id": user_id, "goals": goals}
 
-@app.get("/stats/{user_id}")
+
+@app.get("/stats/{user_id}", tags=["Stats"])
 async def get_stats(user_id: str):
-    """Get statistics for user"""
+    """Get statistics for user."""
     all_tasks = _default_weekly_tasks(user_id)
     total_tasks = len(all_tasks["tasks"])
     completed_tasks = sum(1 for t in all_tasks["tasks"] if t.get("completed", False))
@@ -166,11 +172,11 @@ async def get_stats(user_id: str):
             "total": total_tasks,
             "completed": completed_tasks,
             "completion_rate": round(completed_tasks / total_tasks * 100, 1) if total_tasks > 0 else 0,
-            "total_estimated_minutes": total_minutes
+            "total_estimated_minutes": total_minutes,
         },
         "goals": {
             "total": len(goals),
             "active": active_goals,
-            "average_progress": round(avg_progress, 1)
-        }
+            "average_progress": round(avg_progress, 1),
+        },
     }
