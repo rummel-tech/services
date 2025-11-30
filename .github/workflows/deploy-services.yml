@@ -1,0 +1,258 @@
+name: Deploy Services to AWS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'common/**'
+      - 'meal-planner/**'
+      - 'home-manager/**'
+      - 'vehicle-manager/**'
+      - 'workout-planner/**'
+      - '.github/workflows/**'
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Service to deploy (all, meal-planner, home-manager, vehicle-manager, workout-planner)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - meal-planner
+          - home-manager
+          - vehicle-manager
+          - workout-planner
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECS_CLUSTER: app-cluster
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      meal-planner: ${{ steps.changes.outputs.meal-planner }}
+      home-manager: ${{ steps.changes.outputs.home-manager }}
+      vehicle-manager: ${{ steps.changes.outputs.vehicle-manager }}
+      workout-planner: ${{ steps.changes.outputs.workout-planner }}
+      common: ${{ steps.changes.outputs.common }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changes
+        id: changes
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            SERVICE="${{ github.event.inputs.service }}"
+            if [[ "$SERVICE" == "all" ]]; then
+              echo "meal-planner=true" >> $GITHUB_OUTPUT
+              echo "home-manager=true" >> $GITHUB_OUTPUT
+              echo "vehicle-manager=true" >> $GITHUB_OUTPUT
+              echo "workout-planner=true" >> $GITHUB_OUTPUT
+              echo "common=true" >> $GITHUB_OUTPUT
+            else
+              echo "meal-planner=$([[ '$SERVICE' == 'meal-planner' ]] && echo true || echo false)" >> $GITHUB_OUTPUT
+              echo "home-manager=$([[ '$SERVICE' == 'home-manager' ]] && echo true || echo false)" >> $GITHUB_OUTPUT
+              echo "vehicle-manager=$([[ '$SERVICE' == 'vehicle-manager' ]] && echo true || echo false)" >> $GITHUB_OUTPUT
+              echo "workout-planner=$([[ '$SERVICE' == 'workout-planner' ]] && echo true || echo false)" >> $GITHUB_OUTPUT
+              echo "common=true" >> $GITHUB_OUTPUT
+            fi
+          else
+            CHANGED=$(git diff --name-only HEAD~1 HEAD)
+            echo "meal-planner=$(echo '$CHANGED' | grep -q 'meal-planner/' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "home-manager=$(echo '$CHANGED' | grep -q 'home-manager/' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "vehicle-manager=$(echo '$CHANGED' | grep -q 'vehicle-manager/' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "workout-planner=$(echo '$CHANGED' | grep -q 'workout-planner/' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "common=$(echo '$CHANGED' | grep -q 'common/' && echo true || echo false)" >> $GITHUB_OUTPUT
+          fi
+
+  deploy-meal-planner:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.meal-planner == 'true' || needs.detect-changes.outputs.common == 'true'
+    runs-on: ubuntu-latest
+    env:
+      ECR_REPOSITORY: meal-planner
+      SERVICE_NAME: meal-planner
+      SERVICE_PORT: 8010
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ensure ECR repository exists
+        run: |
+          aws ecr describe-repositories --repository-names $ECR_REPOSITORY --region $AWS_REGION >/dev/null 2>&1 || \
+          aws ecr create-repository --repository-name $ECR_REPOSITORY --image-scanning-configuration scanOnPush=true --region $AWS_REGION
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f $SERVICE_NAME/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Update ECS service (if exists)
+        continue-on-error: true
+        run: |
+          aws ecs update-service --cluster $ECS_CLUSTER --service ${SERVICE_NAME}-service --force-new-deployment --region $AWS_REGION || echo "Service not found, skipping update"
+
+      - name: Deployment summary
+        run: |
+          echo "✅ $SERVICE_NAME deployed!"
+          echo "📦 Image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}"
+
+  deploy-home-manager:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.home-manager == 'true' || needs.detect-changes.outputs.common == 'true'
+    runs-on: ubuntu-latest
+    env:
+      ECR_REPOSITORY: home-manager
+      SERVICE_NAME: home-manager
+      SERVICE_PORT: 8020
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ensure ECR repository exists
+        run: |
+          aws ecr describe-repositories --repository-names $ECR_REPOSITORY --region $AWS_REGION >/dev/null 2>&1 || \
+          aws ecr create-repository --repository-name $ECR_REPOSITORY --image-scanning-configuration scanOnPush=true --region $AWS_REGION
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f $SERVICE_NAME/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Update ECS service (if exists)
+        continue-on-error: true
+        run: |
+          aws ecs update-service --cluster $ECS_CLUSTER --service ${SERVICE_NAME}-service --force-new-deployment --region $AWS_REGION || echo "Service not found, skipping update"
+
+      - name: Deployment summary
+        run: |
+          echo "✅ $SERVICE_NAME deployed!"
+          echo "📦 Image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}"
+
+  deploy-vehicle-manager:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.vehicle-manager == 'true' || needs.detect-changes.outputs.common == 'true'
+    runs-on: ubuntu-latest
+    env:
+      ECR_REPOSITORY: vehicle-manager
+      SERVICE_NAME: vehicle-manager
+      SERVICE_PORT: 8030
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ensure ECR repository exists
+        run: |
+          aws ecr describe-repositories --repository-names $ECR_REPOSITORY --region $AWS_REGION >/dev/null 2>&1 || \
+          aws ecr create-repository --repository-name $ECR_REPOSITORY --image-scanning-configuration scanOnPush=true --region $AWS_REGION
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f $SERVICE_NAME/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Update ECS service (if exists)
+        continue-on-error: true
+        run: |
+          aws ecs update-service --cluster $ECS_CLUSTER --service ${SERVICE_NAME}-service --force-new-deployment --region $AWS_REGION || echo "Service not found, skipping update"
+
+      - name: Deployment summary
+        run: |
+          echo "✅ $SERVICE_NAME deployed!"
+          echo "📦 Image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}"
+
+  deploy-workout-planner:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.workout-planner == 'true' || needs.detect-changes.outputs.common == 'true'
+    runs-on: ubuntu-latest
+    env:
+      ECR_REPOSITORY: workout-planner
+      SERVICE_NAME: workout-planner
+      SERVICE_PORT: 8000
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ensure ECR repository exists
+        run: |
+          aws ecr describe-repositories --repository-names $ECR_REPOSITORY --region $AWS_REGION >/dev/null 2>&1 || \
+          aws ecr create-repository --repository-name $ECR_REPOSITORY --image-scanning-configuration scanOnPush=true --region $AWS_REGION
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f $SERVICE_NAME/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Update ECS service (if exists)
+        continue-on-error: true
+        run: |
+          aws ecs update-service --cluster $ECS_CLUSTER --service ${SERVICE_NAME}-service --force-new-deployment --region $AWS_REGION || echo "Service not found, skipping update"
+
+      - name: Deployment summary
+        run: |
+          echo "✅ $SERVICE_NAME deployed!"
+          echo "📦 Image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}"
