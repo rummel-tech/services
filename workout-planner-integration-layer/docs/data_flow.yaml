@@ -1,0 +1,20 @@
+flow:
+  - event: "Workout Inserted"
+    into: "Supabase Workouts Table"
+    triggers: "SQL Trigger"
+    calls: "Edge Function: ai-orchestrator"
+
+  - event: "Morning Routine Inserted"
+    into: "Supabase morning_routine Table"
+    triggers: "SQL Trigger"
+    calls: "Edge Function: ai-orchestrator"
+
+  - ai-orchestrator:
+      gathers:
+        - morning_routine.latest
+        - workouts.latest
+      calls: "Python AI Server"
+      writes:
+        - readiness_scores
+        - daily_plans
+        - ai_insights

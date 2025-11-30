@@ -1,0 +1,34 @@
+{
+  "family": "fitness-agent-dev-task",
+  "networkMode": "awsvpc",
+  "containerDefinitions": [
+    {
+      "name": "fitness-agent-dev",
+      "image": "${AWS_ECR_REPO}:latest",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "hostPort": 8000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "DATABASE_URL", "value": "${DATABASE_URL}" },
+        { "name": "JWT_SECRET", "value": "${JWT_SECRET}" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/fitness-agent-dev",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ],
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "${ECS_EXECUTION_ROLE}"
+}
