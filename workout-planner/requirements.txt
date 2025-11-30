@@ -27,6 +27,7 @@ psycopg2-binary==2.9.11
 pyasn1==0.6.1
 pycparser==2.23
 pydantic==2.12.4
+pydantic-settings==2.6.1
 pydantic_core==2.41.5
 Pygments==2.19.2
 pytest==9.0.1
@@ -43,3 +44,6 @@ tqdm==4.67.1
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 uvicorn==0.38.0
+slowapi>=0.1.9
+redis>=5.0.0
+prometheus-client>=0.20.0
