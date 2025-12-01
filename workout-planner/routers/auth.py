@@ -136,6 +136,33 @@ def create_user(user: UserCreate, registration_code: str) -> dict:
     return get_user_by_id(user_id)
 
 
+@router.post("/validate-code")
+@limiter.limit("10/minute")
+async def validate_registration_code(request: Request, code: str):
+    """Validate a registration code without using it.
+
+    Returns whether the code is valid and can be used for registration.
+    """
+    if not code or len(code) < 4:
+        return {"valid": False, "message": "Invalid code format"}
+
+    with get_db() as conn:
+        cur = get_cursor(conn)
+        cur.execute("""
+            SELECT code, expires_at FROM registration_codes
+            WHERE code = ? AND is_used = 0
+            AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+        """, (code.upper(),))
+        code_row = cur.fetchone()
+
+        if code_row:
+            log.info("auth_code_validated", extra={"code": code})
+            return {"valid": True, "message": "Code is valid"}
+        else:
+            log.info("auth_code_invalid", extra={"code": code})
+            return {"valid": False, "message": "Invalid or expired code"}
+
+
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
 async def register(request: Request, user: UserCreate):
