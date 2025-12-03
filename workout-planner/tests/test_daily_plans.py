@@ -7,12 +7,14 @@ from datetime import date
 import pytest
 from fastapi.testclient import TestClient
 
+from test_helpers import setup_test_database, get_next_registration_code
+
 
 @pytest.fixture(scope="module")
 def client():
     # Ensure path includes server root so imports resolve
     test_file = Path(__file__).resolve()
-    server_root = test_file.parents[1]  # python_fastapi_server directory
+    server_root = test_file.parents[1]
     if str(server_root) not in sys.path:
         sys.path.insert(0, str(server_root))
 
@@ -20,10 +22,10 @@ def client():
     tmp_db = os.path.join(tempfile.gettempdir(), "daily_plans_test.db")
     if os.path.exists(tmp_db):
         os.remove(tmp_db)
-    os.environ["DATABASE_URL"] = f"sqlite:///{tmp_db}"
 
-    from database import init_sqlite  # type: ignore
-    init_sqlite()
+    # Set up test database (handles module reloading, schema init, and codes)
+    setup_test_database(tmp_db)
+
     from main import app  # type: ignore
     return TestClient(app)
 
@@ -31,7 +33,12 @@ def client():
 @pytest.fixture(scope="module")
 def auth_data(client):
     """Get authentication token and user ID for testing"""
-    response = client.post("/auth/register", json={"email": "testuser@example.com", "password": "TestPassword123!"})
+    code = get_next_registration_code()
+    response = client.post("/auth/register", json={
+        "email": "testuser@example.com",
+        "password": "TestPassword123!",
+        "registration_code": code
+    })
     assert response.status_code == 201
     token = response.json()["access_token"]
 

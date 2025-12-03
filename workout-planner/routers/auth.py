@@ -12,7 +12,22 @@ from slowapi.util import get_remote_address
 from settings import get_settings
 
 log = get_logger("api.auth")
-limiter = Limiter(key_func=get_remote_address)
+
+# Use environment-aware rate limiting - high limits for dev/test, strict for production
+settings = get_settings()
+if settings.environment == "production":
+    limiter = Limiter(key_func=get_remote_address)
+    REGISTER_LIMIT = "5/minute"
+    LOGIN_LIMIT = "10/minute"
+    REFRESH_LIMIT = "10/minute"
+    LOGOUT_LIMIT = "20/minute"
+else:
+    # Very high limits for development/testing to avoid interference
+    limiter = Limiter(key_func=get_remote_address, default_limits=["10000 per minute"])
+    REGISTER_LIMIT = "10000/minute"
+    LOGIN_LIMIT = "10000/minute"
+    REFRESH_LIMIT = "10000/minute"
+    LOGOUT_LIMIT = "10000/minute"
 from auth_service import (
     UserCreate, UserLogin, User, Token, TokenData,
     get_password_hash, verify_password,
@@ -137,7 +152,7 @@ def create_user(user: UserCreate, registration_code: str) -> dict:
 
 
 @router.post("/validate-code")
-@limiter.limit("10/minute")
+@limiter.limit(LOGIN_LIMIT)
 async def validate_registration_code(request: Request, code: str):
     """Validate a registration code without using it.
 
@@ -164,7 +179,7 @@ async def validate_registration_code(request: Request, code: str):
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
-@limiter.limit("5/minute")
+@limiter.limit(REGISTER_LIMIT)
 async def register(request: Request, user: UserCreate):
     """Register a new user account or add to waitlist if no valid code."""
     # Check if user already exists
@@ -245,7 +260,7 @@ async def register(request: Request, user: UserCreate):
 
 
 @router.post("/login", response_model=Token)
-@limiter.limit("10/minute")
+@limiter.limit(LOGIN_LIMIT)
 async def login(request: Request, credentials: UserLogin):
     """Authenticate user and return JWT tokens."""
     # Find user
@@ -286,7 +301,7 @@ async def login(request: Request, credentials: UserLogin):
 
 
 @router.post("/refresh", response_model=Token)
-@limiter.limit("20/minute")
+@limiter.limit(REFRESH_LIMIT)
 async def refresh_token(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Refresh access token using refresh token."""
     token = credentials.credentials

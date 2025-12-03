@@ -5,16 +5,25 @@ from logging_config import get_logger
 import metrics
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from settings import get_settings
 
 log = get_logger("api.waitlist")
-limiter = Limiter(key_func=get_remote_address)
+
+# Use environment-aware rate limiting
+settings = get_settings()
+if settings.environment == "production":
+    limiter = Limiter(key_func=get_remote_address)
+    WAITLIST_LIMIT = "5/minute"
+else:
+    limiter = Limiter(key_func=get_remote_address, default_limits=["10000 per minute"])
+    WAITLIST_LIMIT = "10000/minute"
 router = APIRouter(tags=["waitlist"])
 
 class WaitlistCreate(BaseModel):
     email: EmailStr
 
 @router.post("/waitlist", status_code=status.HTTP_201_CREATED)
-@limiter.limit("5/minute")
+@limiter.limit(WAITLIST_LIMIT)
 async def join_waitlist(request: Request, data: WaitlistCreate):
     """Add a user to the waitlist."""
     with get_db() as conn:

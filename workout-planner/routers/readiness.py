@@ -5,9 +5,18 @@ from datetime import datetime, timedelta
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from cache import cache_response
+from settings import get_settings
 
 router = APIRouter(prefix="/readiness", tags=["readiness"])
-limiter = Limiter(key_func=get_remote_address)
+
+# Use environment-aware rate limiting
+_settings = get_settings()
+if _settings.environment == "production":
+    limiter = Limiter(key_func=get_remote_address)
+    READINESS_LIMIT = "60/minute"
+else:
+    limiter = Limiter(key_func=get_remote_address, default_limits=["10000 per minute"])
+    READINESS_LIMIT = "10000/minute"
 
 def _query(conn, sql, params):
     cur = get_cursor(conn)
@@ -87,7 +96,7 @@ def _calculate_readiness(user_id: str) -> dict:
     }
 
 @router.get("")
-@limiter.limit("60/minute")
+@limiter.limit(READINESS_LIMIT)
 def readiness(request: Request, user_id: str):
     """Get readiness score for user (cached for 5 minutes)."""
     return _calculate_readiness(user_id)

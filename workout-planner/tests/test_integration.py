@@ -13,6 +13,13 @@ from datetime import datetime, date, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
+from test_helpers import setup_test_database, get_next_registration_code
+
+
+def _get_next_code() -> str:
+    """Get the next unique test registration code."""
+    return get_next_registration_code()
+
 
 @pytest.fixture(scope="module")
 def client():
@@ -25,10 +32,10 @@ def client():
     tmp_db = os.path.join(tempfile.gettempdir(), "integration_test.db")
     if os.path.exists(tmp_db):
         os.remove(tmp_db)
-    os.environ["DATABASE_URL"] = f"sqlite:///{tmp_db}"
 
-    from database import init_sqlite  # type: ignore
-    init_sqlite()
+    # Set up test database (handles module reloading, schema init, and codes)
+    setup_test_database(tmp_db)
+
     from main import app  # type: ignore
     return TestClient(app)
 
@@ -40,9 +47,10 @@ class TestCompleteUserJourney:
         """Test: Register → Login → Create daily plan → Update plan → Retrieve plan"""
 
         # Step 1: Register new user
+        code = _get_next_code()
         register_response = client.post(
             "/auth/register",
-            json={"email": "journey1@example.com", "password": "SecurePass123!"}
+            json={"email": "journey1@example.com", "password": "SecurePass123!", "registration_code": code}
         )
         assert register_response.status_code == 201
         tokens = register_response.json()
@@ -130,9 +138,10 @@ class TestHealthDataWorkflow:
         """Test: Register → Ingest health samples → Calculate readiness → Verify score"""
 
         # Step 1: Register user
+        code = _get_next_code()
         register_response = client.post(
             "/auth/register",
-            json={"email": "health1@example.com", "password": "HealthPass123!"}
+            json={"email": "health1@example.com", "password": "HealthPass123!", "registration_code": code}
         )
         assert register_response.status_code == 201
         access_token = register_response.json()["access_token"]
@@ -227,9 +236,10 @@ class TestWeeklyPlanningWorkflow:
         """Test: Register → Create weekly plan → Create daily plans → Retrieve all"""
 
         # Step 1: Register user
+        code = _get_next_code()
         register_response = client.post(
             "/auth/register",
-            json={"email": "weekly1@example.com", "password": "WeeklyPass123!"}
+            json={"email": "weekly1@example.com", "password": "WeeklyPass123!", "registration_code": code}
         )
         access_token = register_response.json()["access_token"]
 
@@ -312,9 +322,10 @@ class TestAuthenticationFlow:
         """Test: Register → Refresh token → Access resource → Logout"""
 
         # Step 1: Register
+        code = _get_next_code()
         register_response = client.post(
             "/auth/register",
-            json={"email": "auth1@example.com", "password": "AuthPass123!"}
+            json={"email": "auth1@example.com", "password": "AuthPass123!", "registration_code": code}
         )
         assert register_response.status_code == 201
         tokens = register_response.json()
@@ -364,9 +375,10 @@ class TestCrossModuleIntegration:
         """Test: Health data → Readiness score → Appropriate workout plan"""
 
         # Step 1: Register user
+        code = _get_next_code()
         register_response = client.post(
             "/auth/register",
-            json={"email": "cross1@example.com", "password": "CrossPass123!"}
+            json={"email": "cross1@example.com", "password": "CrossPass123!", "registration_code": code}
         )
         access_token = register_response.json()["access_token"]
 
@@ -435,18 +447,20 @@ class TestErrorHandlingIntegration:
         """Test: User A cannot access User B's data"""
 
         # Create User A
+        code_a = _get_next_code()
         user_a_response = client.post(
             "/auth/register",
-            json={"email": "usera@example.com", "password": "UserAPass123!"}
+            json={"email": "usera@example.com", "password": "UserAPass123!", "registration_code": code_a}
         )
         user_a_token = user_a_response.json()["access_token"]
         user_a_me = client.get("/auth/me", headers={"Authorization": f"Bearer {user_a_token}"})
         user_a_id = str(user_a_me.json()["id"])
 
         # Create User B
+        code_b = _get_next_code()
         user_b_response = client.post(
             "/auth/register",
-            json={"email": "userb@example.com", "password": "UserBPass123!"}
+            json={"email": "userb@example.com", "password": "UserBPass123!", "registration_code": code_b}
         )
         user_b_token = user_b_response.json()["access_token"]
         user_b_me = client.get("/auth/me", headers={"Authorization": f"Bearer {user_b_token}"})
