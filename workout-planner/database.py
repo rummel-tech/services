@@ -1,9 +1,11 @@
 import os
 import sqlite3
+import logging
 from contextlib import contextmanager
 from settings import get_settings
 import threading
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 DATABASE_URL = settings.database_url
 USE_SQLITE = DATABASE_URL.startswith("sqlite")
@@ -16,7 +18,7 @@ if not USE_SQLITE:
     except ImportError:
         USE_SQLITE = True
         DATABASE_URL = "sqlite:///fitness_dev.db"
-        print("Warning: psycopg2 not available, falling back to SQLite")
+        logger.warning("psycopg2 not available, falling back to SQLite")
 
 _pg_pool = None
 _pg_init_lock = threading.Lock()
@@ -359,7 +361,7 @@ def init_postgres():
             _pg_pool.putconn(conn)
             _pg_initialized = True
         except Exception as e:
-            print(f"Postgres initialization failed: {e}")
+            logger.error(f"Postgres initialization failed: {e}")
 
 if USE_SQLITE:
     init_sqlite()

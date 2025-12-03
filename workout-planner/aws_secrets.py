@@ -4,7 +4,10 @@ Used in production (ECS) to fetch DATABASE_URL and JWT_SECRET from Secrets Manag
 """
 import os
 import json
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 def load_secret_from_aws(secret_name: str) -> Optional[str]:
     """
@@ -21,7 +24,7 @@ def load_secret_from_aws(secret_name: str) -> Optional[str]:
         response = client.get_secret_value(SecretId=secret_name)
         return response['SecretString']
     except Exception as e:
-        print(f"Warning: Failed to load secret {secret_name} from AWS Secrets Manager: {e}")
+        logger.warning(f"Failed to load secret {secret_name} from AWS Secrets Manager: {e}")
         return None
 
 def inject_secrets_from_aws():
@@ -48,4 +51,4 @@ def inject_secrets_from_aws():
             secret_value = load_secret_from_aws(secret_arn)
             if secret_value:
                 os.environ[env_var] = secret_value
-                print(f"Loaded {env_var} from AWS Secrets Manager")
+                logger.info(f"Loaded {env_var} from AWS Secrets Manager")

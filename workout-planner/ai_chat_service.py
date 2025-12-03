@@ -8,6 +8,9 @@ import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 from database import get_db, get_cursor
+from logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # Support both OpenAI and Anthropic
 try:
@@ -36,17 +39,17 @@ class AIChatService:
                 self.client = openai.OpenAI(api_key=api_key)
                 self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
             else:
-                print("Warning: OPENAI_API_KEY not set. Using mock responses.")
+                logger.warning("OPENAI_API_KEY not set. Using mock responses.")
         elif self.provider == "anthropic" and ANTHROPIC_AVAILABLE:
             api_key = os.getenv("ANTHROPIC_API_KEY")
             if api_key:
                 self.client = anthropic.Anthropic(api_key=api_key)
                 self.model = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
             else:
-                print("Warning: ANTHROPIC_API_KEY not set. Using mock responses.")
+                logger.warning("ANTHROPIC_API_KEY not set. Using mock responses.")
         else:
             # Fallback to mock mode for development
-            print("Warning: No AI provider configured. Using mock responses.")
+            logger.warning("No AI provider configured. Using mock responses.")
     
     def get_user_context(self, user_id: str, days: int = 7) -> Dict[str, Any]:
         """Retrieve user's recent health data, goals, and readiness for context"""
