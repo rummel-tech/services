@@ -9,6 +9,7 @@ from typing import Optional
 from fastapi import FastAPI
 
 from .middleware import add_standard_middleware
+from .error_handlers import install_error_handlers
 
 
 @dataclass
@@ -25,6 +26,7 @@ class ServiceConfig:
     environment: str = field(default_factory=lambda: os.getenv("ENVIRONMENT", "development"))
     enable_security_headers: bool = True
     enable_request_logging: bool = True
+    enable_error_handlers: bool = True
 
     def __post_init__(self):
         # Allow root_path override from environment
@@ -58,6 +60,10 @@ def create_app(config: ServiceConfig) -> FastAPI:
         enable_request_logging=config.enable_request_logging,
         environment=config.environment,
     )
+
+    # Add standard error handlers
+    if config.enable_error_handlers:
+        install_error_handlers(app)
 
     # Add standard health endpoints
     @app.get("/health", tags=["Health"])

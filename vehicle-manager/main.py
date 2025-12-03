@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Optional, List
 
+from fastapi import HTTPException
 from pydantic import BaseModel
 
 # Add common package to path
@@ -259,7 +260,7 @@ async def get_vehicle(user_id: str, vehicle_id: str):
     for vehicle in vehicles["vehicles"]:
         if vehicle["id"] == vehicle_id:
             return vehicle
-    return {"error": "Vehicle not found"}
+    raise HTTPException(status_code=404, detail="Vehicle not found")
 
 
 @app.get("/maintenance/{vehicle_id}", tags=["Maintenance"])
