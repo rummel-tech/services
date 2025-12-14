@@ -169,6 +169,20 @@ def init_sqlite():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS workouts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL,
+            warmup TEXT,
+            main TEXT,
+            cooldown TEXT,
+            notes TEXT,
+            status TEXT DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
         -- Basic indexes
         CREATE INDEX IF NOT EXISTS idx_goal_plans_goal_id ON goal_plans(goal_id);
         CREATE INDEX IF NOT EXISTS idx_goal_plans_user_id ON goal_plans(user_id);
@@ -180,6 +194,8 @@ def init_sqlite():
         CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON chat_messages(session_id);
         CREATE INDEX IF NOT EXISTS idx_chat_messages_user_id ON chat_messages(user_id);
         CREATE INDEX IF NOT EXISTS idx_daily_plans_user_id ON daily_plans(user_id);
+        CREATE INDEX IF NOT EXISTS idx_workouts_user_id ON workouts(user_id);
+        CREATE INDEX IF NOT EXISTS idx_workouts_user_type ON workouts(user_id, type);
 
         -- Optimized composite indexes for frequent queries
         CREATE INDEX IF NOT EXISTS idx_health_samples_user_type_time ON health_samples(user_id, sample_type, start_time);
@@ -345,6 +361,19 @@ def init_postgres():
                     email TEXT UNIQUE NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE TABLE IF NOT EXISTS workouts (
+                    id SERIAL PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    warmup TEXT,
+                    main TEXT,
+                    cooldown TEXT,
+                    notes TEXT,
+                    status TEXT DEFAULT 'active',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
                 CREATE INDEX IF NOT EXISTS idx_goal_plans_goal_id ON goal_plans(goal_id);
                 CREATE INDEX IF NOT EXISTS idx_goal_plans_user_id ON goal_plans(user_id);
                 CREATE INDEX IF NOT EXISTS idx_weekly_plans_user_id ON weekly_plans(user_id);
@@ -355,6 +384,8 @@ def init_postgres():
                 CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON chat_messages(session_id);
                 CREATE INDEX IF NOT EXISTS idx_chat_messages_user_id ON chat_messages(user_id);
                 CREATE INDEX IF NOT EXISTS idx_daily_plans_user_id ON daily_plans(user_id);
+                CREATE INDEX IF NOT EXISTS idx_workouts_user_id ON workouts(user_id);
+                CREATE INDEX IF NOT EXISTS idx_workouts_user_type ON workouts(user_id, type);
             """)
             conn.commit()
             cur.close()
