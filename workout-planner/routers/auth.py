@@ -112,10 +112,10 @@ def get_admin_user(current_user: TokenData = Depends(get_current_user)) -> Token
 
 
 def get_user_by_email(email: str):
-    """Fetch user from database by email."""
+    """Fetch user from database by email (case-insensitive)."""
     with get_db() as conn:
         cur = get_cursor(conn)
-        cur.execute("SELECT * FROM users WHERE email = ?", (email,))
+        cur.execute("SELECT * FROM users WHERE LOWER(email) = LOWER(?)", (email,))
         row = cur.fetchone()
         if row:
             return dict(row)
@@ -137,17 +137,19 @@ def create_user(user: UserCreate, registration_code: str) -> dict:
     """Create new user in database."""
     user_id = str(uuid.uuid4())
     hashed_password = get_password_hash(user.password)
-    
+    # Normalize email to lowercase for consistent storage
+    normalized_email = user.email.lower()
+
     with get_db() as conn:
         cur = get_cursor(conn)
         cur.execute(
             """INSERT INTO users (id, email, hashed_password, full_name, is_active, created_at, updated_at)
                VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)""",
-            (user_id, user.email, hashed_password, user.full_name)
+            (user_id, normalized_email, hashed_password, user.full_name)
         )
         cur.execute("UPDATE registration_codes SET is_used = 1, used_by_user_id = ? WHERE code = ?", (user_id, registration_code))
         conn.commit()
-    
+
     return get_user_by_id(user_id)
 
 
