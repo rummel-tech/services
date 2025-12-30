@@ -1,11 +1,11 @@
 from fastapi import APIRouter, HTTPException, status, Request
 from pydantic import BaseModel, EmailStr
-from database import get_db, get_cursor
-from logging_config import get_logger
+from core.database import get_db, get_cursor
+from core.logging_config import get_logger
 import metrics
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from settings import get_settings
+from core.settings import get_settings
 
 log = get_logger("api.waitlist")
 

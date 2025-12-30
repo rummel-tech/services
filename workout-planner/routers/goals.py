@@ -1,13 +1,19 @@
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel
 from typing import Optional
-from database import get_db, get_cursor, USE_SQLITE
-from logging_config import get_logger
+from core.database import get_db, get_cursor, USE_SQLITE
+from core.logging_config import get_logger
+from core.settings import get_settings
 import metrics
-from auth_service import TokenData
+from core.auth_service import TokenData
 from routers.auth import get_current_user
 
 log = get_logger("api.goals")
+settings = get_settings()
+
+
+def _auth_bypass() -> bool:
+    return settings.disable_auth and settings.environment == "development"
 
 router = APIRouter(prefix="/goals", tags=["goals"])
 
@@ -59,7 +65,7 @@ class PlanUpdate(BaseModel):
 
 @router.get("")
 def get_goals(user_id: str, current_user: TokenData = Depends(get_current_user)):
-    if current_user.user_id != user_id:
+    if not _auth_bypass() and current_user.user_id != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden: user mismatch")
     with get_db() as conn:
         cur = get_cursor(conn)
@@ -75,7 +81,7 @@ def get_goals(user_id: str, current_user: TokenData = Depends(get_current_user))
 
 @router.post("")
 def create_goal(goal: GoalCreate, current_user: TokenData = Depends(get_current_user)):
-    if current_user.user_id != goal.user_id:
+    if not _auth_bypass() and current_user.user_id != goal.user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden: user mismatch")
     log.info("goal_create_attempt", extra={"user_id": goal.user_id, "goal_type": goal.goal_type})
     metrics.record_domain_event("goal_create_attempt")

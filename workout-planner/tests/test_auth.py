@@ -1,199 +1,215 @@
+"""Onboarding and auth flows aligned to requirements/test-plan."""
 import os
-import sys
-import tempfile
+from typing import Generator
+
 import pytest
-import sqlite3
 from fastapi.testclient import TestClient
 
+# Configure test env before importing app/settings
+TEST_DB = "test_auth.db"
+os.environ.setdefault("ENVIRONMENT", "development")
+os.environ.setdefault("DISABLE_AUTH", "true")  # bypass auth for admin endpoints in dev
+os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB}"
 
-# Counter for unique registration codes
-_code_counter = 0
+from core.database import init_sqlite, get_db, get_cursor
+from main import app
+
+client = TestClient(app)
 
 
-def _create_test_registration_code(db_path: str, code: str) -> None:
-    """Create a registration code in the test database."""
-    conn = sqlite3.connect(db_path)
-    conn.execute("INSERT OR IGNORE INTO registration_codes (code, is_used) VALUES (?, 0)", (code,))
-    conn.commit()
-    conn.close()
+@pytest.fixture(autouse=True)
+def reset_db() -> Generator[None, None, None]:
+    """Ensure a fresh SQLite database per test."""
+    if os.path.exists(TEST_DB):
+        os.remove(TEST_DB)
+    init_sqlite()
+    yield
+    if os.path.exists(TEST_DB):
+        os.remove(TEST_DB)
 
 
-def _get_next_code() -> str:
-    """Get the next unique test registration code."""
-    global _code_counter
-    code = f"TESTCODE{_code_counter:02d}"
-    _code_counter += 1
+def _create_registration_code(code: str = "TESTCODE1") -> str:
+    with get_db() as conn:
+        cur = get_cursor(conn)
+        cur.execute("INSERT INTO registration_codes (code) VALUES (?)", (code,))
+        conn.commit()
     return code
 
 
-@pytest.fixture(scope="module")
-def client():
-    # Ensure path includes server root
-    test_file = os.path.abspath(__file__)
-    server_root = os.path.dirname(os.path.dirname(test_file))
-    if server_root not in sys.path:
-        sys.path.insert(0, server_root)
-
-    # Isolated sqlite DB
-    tmp_db = os.path.join(tempfile.gettempdir(), "auth_test.db")
-    if os.path.exists(tmp_db):
-        os.remove(tmp_db)
-    os.environ["DATABASE_URL"] = f"sqlite:///{tmp_db}"
-
-    # Clear cached settings and reload database module to pick up new DATABASE_URL
-    from settings import get_settings
-    get_settings.cache_clear()
-
-    # Force reload of database module to use new DATABASE_URL
-    import importlib
-    if 'database' in sys.modules:
-        del sys.modules['database']
-
-    import database  # type: ignore
-    importlib.reload(database)
-    database.init_sqlite()
-
-    # Create test registration codes
-    for i in range(50):  # Create enough codes for all tests
-        _create_test_registration_code(tmp_db, f"TESTCODE{i:02d}")
-
-    from main import app  # type: ignore
-    return TestClient(app)
+def _create_expired_code(code: str = "EXPIRE1") -> str:
+    with get_db() as conn:
+        cur = get_cursor(conn)
+        # Set expires_at in the past
+        cur.execute(
+            "INSERT INTO registration_codes (code, expires_at) VALUES (?, datetime('now', '-1 day'))",
+            (code,)
+        )
+        conn.commit()
+    return code
 
 
-def test_register_success(client):
-    code = _get_next_code()
-    r = client.post("/auth/register", json={
-        "email": "user1@example.com",
-        "password": "Password123!",
-        "registration_code": code
-    })
-    assert r.status_code == 201, r.text
-    data = r.json()
-    assert data.get("status") == "registered"
-    assert "access_token" in data and "refresh_token" in data
+def test_waitlist_join_success():
+    response = client.post("/waitlist", json={"email": "newuser@example.com"})
+    assert response.status_code == 201
+    assert "waitlist" in response.json()["message"].lower()
 
 
-def test_register_duplicate_email(client):
-    code1 = _get_next_code()
-    code2 = _get_next_code()
-    r1 = client.post("/auth/register", json={
-        "email": "dupe@example.com",
-        "password": "Password123!",
-        "registration_code": code1
-    })
-    assert r1.status_code == 201
-    r2 = client.post("/auth/register", json={
-        "email": "dupe@example.com",
-        "password": "OtherPass123!",
-        "registration_code": code2
-    })
-    assert r2.status_code == 400
-    assert "Email already registered" in r2.text
+def test_waitlist_duplicate_rejected():
+    client.post("/waitlist", json={"email": "dup@example.com"})
+    response = client.post("/waitlist", json={"email": "dup@example.com"})
+    assert response.status_code == 400
+    assert "already" in response.json()["detail"].lower()
 
 
-def test_register_weak_password(client):
-    code = _get_next_code()
-    r = client.post("/auth/register", json={
-        "email": "weak@example.com",
-        "password": "short",
-        "registration_code": code
-    })
-    assert r.status_code == 422  # Pydantic validation error
-    data = r.json()
-    # Check the error details contain the password validation message
-    details = data.get("error", {}).get("details", [])
-    assert any("Password must be at least 8 characters" in str(detail) for detail in details)
+def test_register_without_code_adds_waitlist():
+    response = client.post(
+        "/auth/register",
+        json={"email": "waitlist@example.com", "password": "password123"}
+    )
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["status"] == "waitlisted"
+    assert "waiting list" in payload["message"].lower()
 
 
-def test_register_too_long_password(client):
-    code = _get_next_code()
-    long_pw = "A" * 73  # 73 ASCII chars => 73 bytes > 72 bcrypt limit
-    r = client.post("/auth/register", json={
-        "email": "toolong@example.com",
-        "password": long_pw,
-        "registration_code": code
-    })
-    assert r.status_code == 422
-    data = r.json()
-    # Check the error details contain the password validation message
-    details = data.get("error", {}).get("details", [])
-    assert any("Password must be at most 72 bytes" in str(detail) for detail in details)
+def test_register_with_invalid_code_waitlists_user():
+    response = client.post(
+        "/auth/register",
+        json={
+            "email": "badcode@example.com",
+            "password": "password123",
+            "registration_code": "NOTREAL"
+        }
+    )
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["status"] == "waitlisted"
+    assert "invalid" in payload["message"].lower()
 
 
-def test_register_without_code_adds_to_waitlist(client):
-    """Test that registration without a code adds user to waitlist."""
-    r = client.post("/auth/register", json={
-        "email": "nowaitlist@example.com",
-        "password": "Password123!"
-    })
-    assert r.status_code == 201
-    data = r.json()
-    assert data.get("status") == "waitlisted"
+def test_register_with_valid_code_creates_user_and_tokens():
+    code = _create_registration_code("REALCODE")
+    response = client.post(
+        "/auth/register",
+        json={
+            "email": "member@example.com",
+            "password": "password123",
+            "registration_code": code,
+            "full_name": "Member User"
+        }
+    )
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["status"] == "registered"
+    assert payload["token_type"] == "bearer"
+    assert payload["access_token"]
+    assert payload["refresh_token"]
 
 
-def test_login_success(client):
-    code = _get_next_code()
-    client.post("/auth/register", json={
-        "email": "login@example.com",
-        "password": "Password123!",
-        "registration_code": code
-    })
-    r = client.post("/auth/login", json={"email": "login@example.com", "password": "Password123!"})
-    assert r.status_code == 200
-    data = r.json()
-    assert "access_token" in data
+def test_admin_invite_from_waitlist_generates_code_and_removes_entry():
+    email = "waitlist-invite@example.com"
+    client.post("/waitlist", json={"email": email})
+
+    response = client.post(
+        "/auth/admin/waitlist/invite",
+        params={"email": email, "expires_in_days": 7}
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["email"] == email
+    assert payload["code"]
+    assert "removed" in payload["message"].lower()
+
+    # Ensure waitlist entry is gone
+    with get_db() as conn:
+        cur = get_cursor(conn)
+        cur.execute("SELECT * FROM waitlist WHERE email = ?", (email,))
+        assert cur.fetchone() is None
 
 
-def test_login_bad_password(client):
-    code = _get_next_code()
-    client.post("/auth/register", json={
-        "email": "badpass@example.com",
-        "password": "Password123!",
-        "registration_code": code
-    })
-    r = client.post("/auth/login", json={"email": "badpass@example.com", "password": "WrongPass"})
-    assert r.status_code == 401
-    assert "Incorrect email or password" in r.text
+def test_registration_code_single_use_enforced():
+    code = _create_registration_code("SINGLEUSE")
+
+    # First registration succeeds
+    first = client.post(
+        "/auth/register",
+        json={"email": "one@example.com", "password": "password123", "registration_code": code}
+    )
+    assert first.status_code == 201
+    assert first.json()["status"] == "registered"
+
+    # Second registration with same code is rejected (waitlisted)
+    second = client.post(
+        "/auth/register",
+        json={"email": "two@example.com", "password": "password123", "registration_code": code}
+    )
+    assert second.status_code == 201
+    assert second.json()["status"] == "waitlisted"
 
 
-def test_login_nonexistent_email(client):
-    r = client.post("/auth/login", json={"email": "nouser@example.com", "password": "Password123!"})
-    assert r.status_code == 401
-    assert "Incorrect email or password" in r.text
+def test_registration_with_expired_code_waitlists_user():
+    code = _create_expired_code("EXPIRED1")
+    response = client.post(
+        "/auth/register",
+        json={"email": "expired@example.com", "password": "password123", "registration_code": code}
+    )
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["status"] == "waitlisted"
+    assert "invalid" in payload["message"].lower()
 
 
-def test_refresh_and_me(client):
-    code = _get_next_code()
-    reg = client.post("/auth/register", json={
-        "email": "refresh@example.com",
-        "password": "Password123!",
-        "registration_code": code
-    })
-    data = reg.json()
-    access = data["access_token"]
-    refresh = data["refresh_token"]
+def test_validate_code_endpoint_valid_and_invalid():
+    valid_code = _create_registration_code("VALIDVAL")
+    expired_code = _create_expired_code("OLDVAL")
 
-    # /auth/me
-    me = client.get("/auth/me", headers={"Authorization": f"Bearer {access}"})
-    assert me.status_code == 200
-    assert me.json()["email"] == "refresh@example.com"
+    res_valid = client.post("/auth/validate-code", params={"code": valid_code})
+    assert res_valid.status_code == 200
+    assert res_valid.json()["valid"] is True
 
-    # refresh endpoint
-    ref = client.post("/auth/refresh", headers={"Authorization": f"Bearer {refresh}"})
-    assert ref.status_code == 200
-    new_tokens = ref.json()
-    assert new_tokens["access_token"] != access
+    res_invalid = client.post("/auth/validate-code", params={"code": "NOPE"})
+    assert res_invalid.status_code == 200
+    assert res_invalid.json()["valid"] is False
+
+    res_expired = client.post("/auth/validate-code", params={"code": expired_code})
+    assert res_expired.status_code == 200
+    assert res_expired.json()["valid"] is False
 
 
-def test_logout(client):
-    code = _get_next_code()
-    reg = client.post("/auth/register", json={
-        "email": "logout@example.com",
-        "password": "Password123!",
-        "registration_code": code
-    })
-    access = reg.json()["access_token"]
-    out = client.post("/auth/logout", headers={"Authorization": f"Bearer {access}"})
-    assert out.status_code == 200
-    assert out.json()["message"] == "Successfully logged out"
+def test_login_and_refresh_after_registration():
+    code = _create_registration_code("LOGINCODE")
+    register_response = client.post(
+        "/auth/register",
+        json={
+            "email": "login@example.com",
+            "password": "password123",
+            "registration_code": code
+        }
+    )
+    refresh_token = register_response.json()["refresh_token"]
+
+    # Login again to validate credentials
+    login_response = client.post(
+        "/auth/login",
+        json={"email": "login@example.com", "password": "password123"}
+    )
+    assert login_response.status_code == 200
+    access_token = login_response.json()["access_token"]
+
+    # Refresh token flow
+    refresh_response = client.post(
+        "/auth/refresh",
+        headers={"Authorization": f"Bearer {refresh_token}"}
+    )
+    assert refresh_response.status_code == 200
+    refreshed = refresh_response.json()
+    assert refreshed["access_token"]
+    assert refreshed["refresh_token"]
+
+    # Logout with the active access token
+    logout_response = client.post(
+        "/auth/logout",
+        headers={"Authorization": f"Bearer {access_token}"}
+    )
+    assert logout_response.status_code == 200

@@ -1,0 +1,149 @@
+# Vehicle Manager API - Requirements & Specifications
+# Source of truth for the vehicle-manager service
+
+metadata:
+  name: vehicle-manager
+  version: "0.1.0"
+  description: "Vehicle maintenance tracking and service history API"
+  owner: Rummel Tech
+  repository: services/vehicle-manager
+  status: MVP/Early Development
+  
+technical_stack:
+  language: Python 3.11+
+  framework: FastAPI 0.100+
+  databases:
+    primary: PostgreSQL 14+ (planned)
+    development: In-memory/Mock data
+  deployment: AWS ECS Fargate (planned)
+  
+dependencies:
+  runtime:
+    - fastapi>=0.100.0
+    - uvicorn>=0.20.0
+    - pydantic>=2.0.0
+  development:
+    - pytest>=7.4.0
+    - pytest-cov>=4.1.0
+    - httpx>=0.24.0
+
+infrastructure:
+  compute:
+    port: 8030
+    service: AWS ECS Fargate (planned)
+  shared_dependencies:
+    - Uses common package from services/common/
+
+environments:
+  development:
+    port: 8030
+    database: Mock data in-memory
+    log_level: DEBUG
+
+api_specification:
+  base_path: /
+  authentication: Shared with workout-planner (future)
+  
+  endpoints:
+    - path: /
+      method: GET
+      description: Root endpoint with service info
+      
+    - path: /health
+      method: GET
+      description: Health check (from common package)
+      
+    - path: /ready
+      method: GET
+      description: Readiness check (from common package)
+      
+    - path: /vehicles/{user_id}
+      method: GET
+      description: List user's vehicles
+      
+    - path: /vehicles/{user_id}
+      method: POST
+      description: Add new vehicle
+      
+    - path: /vehicles/{user_id}/{vehicle_id}
+      method: GET
+      description: Get vehicle details
+      
+    - path: /vehicles/{user_id}/{vehicle_id}
+      method: PUT
+      description: Update vehicle
+      
+    - path: /vehicles/{user_id}/{vehicle_id}
+      method: DELETE
+      description: Delete vehicle
+      
+    - path: /vehicles/{user_id}/{vehicle_id}/maintenance
+      method: GET
+      description: Get maintenance history
+      
+    - path: /vehicles/{user_id}/{vehicle_id}/maintenance
+      method: POST
+      description: Add maintenance record
+
+data_models:
+  Vehicle:
+    id: string (optional)
+    user_id: string
+    make: string
+    model: string
+    year: integer
+    vin: string (optional)
+    license_plate: string (optional)
+    mileage: integer
+    last_service_date: string (optional)
+    next_service_due: integer (mileage)
+    
+  MaintenanceRecord:
+    id: string (optional)
+    vehicle_id: string
+    date: string
+    mileage: integer
+    service_type: string
+    description: string
+    cost: float (optional)
+    service_provider: string (optional)
+    notes: string (optional)
+    
+  ServiceReminder:
+    vehicle_id: string
+    service_type: string
+    due_mileage: integer
+    due_date: string (optional)
+    completed: boolean (default: false)
+
+features:
+  current_mvp:
+    - Mock vehicle management
+    - Basic vehicle information storage
+    - Health check endpoints from common package
+    - Standard middleware (CORS, logging, security headers)
+    
+  planned:
+    - Database persistence
+    - Maintenance history tracking
+    - Service reminders
+    - Cost tracking and analytics
+    - Fuel economy tracking
+    - Document storage (receipts, manuals)
+    - Multi-vehicle support
+    - Maintenance schedule templates by make/model
+
+deployment:
+  current: Local development only
+  planned:
+    - Docker container
+    - ECS deployment
+    - Shared load balancer with other services
+
+configuration:
+  shared_config:
+    uses: services/common/ServiceConfig
+    name: vehicle-manager
+    title: "Vehicle Manager API"
+    port: 8030
+    description: "Vehicle maintenance tracking and service history"

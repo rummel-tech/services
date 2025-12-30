@@ -47,7 +47,6 @@ services/
 │   ├── database.py                   # SQLite/PostgreSQL abstraction
 │   └── tests/                        # Pytest suite
 ├── workout-planner-ai-engine/        # AI workout planning logic
-├── workout-planner-fastapi-server/   # Alternative FastAPI server
 ├── workout-planner-integration-layer/ # Backend integration utilities
 ├── meal-planner/                     # FastAPI - Meal planning
 │   └── main.py

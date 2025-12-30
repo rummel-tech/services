@@ -1,14 +1,20 @@
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel
 from typing import List, Optional
-from database import get_db, get_cursor, USE_SQLITE
-from logging_config import get_logger
+from core.database import get_db, get_cursor, USE_SQLITE
+from core.logging_config import get_logger
+from core.settings import get_settings
 import metrics
-from auth_service import TokenData
+from core.auth_service import TokenData
 from routers.auth import get_current_user
-from cache import cache_response, invalidate_user_cache
+from core.cache import cache_response, invalidate_user_cache
 
 log = get_logger("api.health")
+settings = get_settings()
+
+
+def _auth_bypass() -> bool:
+    return settings.disable_auth and settings.environment == "development"
 
 router = APIRouter(prefix="/health", tags=["health"])
 
@@ -30,7 +36,7 @@ def ingest_samples(payload: BulkSamples, current_user: TokenData = Depends(get_c
     if not payload.samples:
         log.warning("health_ingest_empty")
         raise HTTPException(status_code=400, detail="No samples provided")
-    if payload.samples and current_user.user_id != payload.samples[0].user_id:
+    if payload.samples and (not _auth_bypass()) and current_user.user_id != payload.samples[0].user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden: user mismatch")
     with get_db() as conn:
         cur = get_cursor(conn)
@@ -75,7 +81,7 @@ def ingest_samples(payload: BulkSamples, current_user: TokenData = Depends(get_c
 
 @router.get("/samples")
 def list_samples(user_id: str, sample_type: Optional[str] = None, limit: int = 100, current_user: TokenData = Depends(get_current_user)):
-    if current_user.user_id != user_id:
+    if not _auth_bypass() and current_user.user_id != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden: user mismatch")
     with get_db() as conn:
         cur = get_cursor(conn)

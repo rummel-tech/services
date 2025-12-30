@@ -1,0 +1,119 @@
+# Meal Planner API - Requirements & Specifications
+# Source of truth for the meal-planner service
+
+metadata:
+  name: meal-planner
+  version: "0.1.0"
+  description: "Weekly meal planning and nutrition tracking API"
+  owner: Rummel Tech
+  repository: services/meal-planner
+  status: MVP/Early Development
+  
+technical_stack:
+  language: Python 3.11+
+  framework: FastAPI 0.100+
+  databases:
+    primary: PostgreSQL 14+ (planned)
+    development: In-memory/Mock data
+  deployment: AWS ECS Fargate (planned)
+  
+dependencies:
+  runtime:
+    - fastapi>=0.100.0
+    - uvicorn>=0.20.0
+    - pydantic>=2.0.0
+  development:
+    - pytest>=7.4.0
+    - pytest-cov>=4.1.0
+    - httpx>=0.24.0
+
+infrastructure:
+  compute:
+    port: 8010
+    service: AWS ECS Fargate (planned)
+  shared_dependencies:
+    - Uses common package from services/common/
+    
+environments:
+  development:
+    port: 8010
+    database: Mock data in-memory
+    log_level: DEBUG
+
+api_specification:
+  base_path: /
+  authentication: Shared with workout-planner (future)
+  
+  endpoints:
+    - path: /
+      method: GET
+      description: Root endpoint with service info
+      
+    - path: /health
+      method: GET
+      description: Health check (from common package)
+      
+    - path: /ready
+      method: GET
+      description: Readiness check (from common package)
+      
+    - path: /weekly-meals/{user_id}
+      method: GET
+      description: Get weekly meal plan
+      response:
+        user_id: string
+        week_start: string
+        focus: string
+        days: array of DailyMeals
+        
+    - path: /weekly-meals/{user_id}
+      method: PUT
+      description: Create/update weekly meal plan
+      
+data_models:
+  MealItem:
+    name: string
+    calories: integer (optional)
+    protein_g: integer (optional)
+    carbs_g: integer (optional)
+    fat_g: integer (optional)
+    
+  DailyMeals:
+    day: string (e.g., "Monday")
+    meals: array of MealItem
+    
+  WeeklyMealPlan:
+    user_id: string
+    week_start: string (optional)
+    focus: string (default: "balanced")
+    days: array of DailyMeals
+
+features:
+  current_mvp:
+    - Mock weekly meal plan retrieval
+    - Basic meal data structures
+    - Health check endpoints from common package
+    - Standard middleware (CORS, logging, security headers)
+    
+  planned:
+    - Database persistence
+    - Nutrition calculation
+    - Meal recommendations
+    - Shopping list generation
+    - Dietary restrictions support
+    - Integration with workout-planner API
+
+deployment:
+  current: Local development only
+  planned:
+    - Docker container
+    - ECS deployment
+    - Shared load balancer with other services
+
+configuration:
+  shared_config:
+    uses: services/common/ServiceConfig
+    name: meal-planner
+    title: "Meal Planner API"
+    port: 8010
+    description: "Weekly meal planning and nutrition tracking"

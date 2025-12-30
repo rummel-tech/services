@@ -7,14 +7,14 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
 import json
-from database import get_db, get_cursor
-from logging_config import get_logger
+from core.database import get_db, get_cursor
+from core.logging_config import get_logger
 import metrics
-from auth_service import TokenData
+from core.auth_service import TokenData
 from routers.auth import get_current_user
 
 log = get_logger("api.chat")
-from ai_chat_service import chat_service
+from core.ai_chat_service import chat_service
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 

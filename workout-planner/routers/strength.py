@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional
-from database import get_db, get_cursor
+from core.database import get_db, get_cursor
 import metrics
 
 router = APIRouter(prefix="/strength", tags=["strength"])

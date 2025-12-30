@@ -8,6 +8,7 @@ __pycache__/
 venv/
 ENV/
 env/
+.dep_update/
 *.egg-info/
 dist/
 build/
@@ -15,6 +16,9 @@ build/
 # SQLite databases
 *.db
 *.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
 
 # Environment files
 .env
@@ -40,3 +44,9 @@ htmlcov/
 # Logs
 *.log
 logs/
+
+# Archive
+.archive/
+
+# Meta/process documentation
+.meta/

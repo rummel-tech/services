@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel
 from typing import Optional, List, Dict
-from auth_service import TokenData
+from core.auth_service import TokenData
 from routers.auth import get_current_user
-from logging_config import get_logger
+from core.logging_config import get_logger
 import metrics
 
 log = get_logger("api.meals")

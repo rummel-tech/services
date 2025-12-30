@@ -1,11 +1,11 @@
 from fastapi import APIRouter, HTTPException, Request
 import metrics
-from database import get_db, get_cursor, USE_SQLITE
+from core.database import get_db, get_cursor, USE_SQLITE
 from datetime import datetime, timedelta
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from cache import cache_response
-from settings import get_settings
+from core.cache import cache_response
+from core.settings import get_settings
 
 router = APIRouter(prefix="/readiness", tags=["readiness"])
 

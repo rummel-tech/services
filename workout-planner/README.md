@@ -3,6 +3,66 @@
 ## Overview
 This FastAPI service provides AI-driven fitness planning (daily & weekly plans), readiness scoring, strength/swim/murph metric processing, goal management, and simple auth + chat endpoints. It supports both local SQLite development and production PostgreSQL (e.g. AWS RDS) with automatic schema bootstrap.
 
+## Project Structure
+
+```
+workout-planner/
+├── main.py                    # Application entry point
+├── core/                      # Core infrastructure & services
+│   ├── ai_chat_service.py     # AI chat integration
+│   ├── ai_engine.py           # AI fitness engine wrapper
+│   ├── auth_service.py        # Authentication & JWT handling
+│   ├── aws_secrets.py         # AWS Secrets Manager integration
+│   ├── cache.py               # Redis caching layer
+│   ├── database.py            # Database abstraction (SQLite/Postgres)
+│   ├── error_handlers.py      # Global error handling
+│   ├── logging_config.py      # Structured logging setup
+│   ├── metrics.py             # Prometheus metrics
+│   ├── redis_client.py        # Redis client wrapper
+│   └── settings.py            # Configuration management
+├── models/                    # Domain/business logic
+│   ├── daily_plan.py          # Daily workout planning
+│   ├── goals.py               # Goal management
+│   ├── murph.py               # Murph workout processing
+│   ├── readiness.py           # Readiness score calculation
+│   ├── strength.py            # Strength training analytics
+│   ├── swim.py                # Swimming workout analytics
+│   └── weekly_plan.py         # Weekly schedule generation
+├── routers/                   # API endpoints (modular)
+│   ├── auth.py                # Authentication endpoints
+│   ├── chat.py                # AI chat endpoints
+│   ├── daily_plans.py         # Daily workout CRUD
+│   ├── goals.py               # Goal management
+│   ├── health.py              # Health/readiness checks
+│   ├── meals.py               # Meal planning
+│   ├── murph.py               # Murph workout endpoints
+│   ├── readiness.py           # Readiness scoring
+│   ├── strength.py            # Strength tracking
+│   ├── swim.py                # Swim workout tracking
+│   ├── waitlist.py            # User waitlist management
+│   ├── weekly_plans.py        # Weekly workout CRUD
+│   └── workouts.py            # General workout management
+├── scripts/                   # Utility scripts
+│   ├── cleanup_test_users.py  # Database cleanup
+│   ├── demo_chat.py           # Chat demo
+│   ├── generate_codes.py      # Access code generation
+│   └── make_admin.py          # User admin management
+├── tests/                     # Test suite
+├── docs/                      # Documentation
+│   ├── CACHING_STRATEGY.md
+│   ├── CI_CD_GUIDE.md
+│   ├── DEPLOY_TRIGGER.md
+│   ├── DOCKER_COMPOSE_QUICKSTART.md
+│   ├── PERFORMANCE_BASELINE.md
+│   ├── REDIS_TOKEN_BLACKLIST.md
+│   └── SECURITY_REPORT.md
+├── Dockerfile                 # Container definition
+├── docker-compose.yml         # Local development setup
+├── pyproject.toml             # Project metadata & dependencies
+├── requirements.txt           # Python dependencies
+└── pytest.ini                 # Test configuration
+```
+
 ## Quick Start (Local Dev)
 ```bash
 python -m venv .venv

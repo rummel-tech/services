@@ -1,0 +1,144 @@
+# Home Manager API - Requirements & Specifications
+# Source of truth for the home-manager service
+
+metadata:
+  name: home-manager
+  version: "0.1.0"
+  description: "Weekly home task management and goal tracking API"
+  owner: Rummel Tech
+  repository: services/home-manager
+  status: MVP/Early Development
+  
+technical_stack:
+  language: Python 3.11+
+  framework: FastAPI 0.100+
+  databases:
+    primary: PostgreSQL 14+ (planned)
+    development: In-memory/Mock data
+  deployment: AWS ECS Fargate (planned)
+  
+dependencies:
+  runtime:
+    - fastapi>=0.100.0
+    - uvicorn>=0.20.0
+    - pydantic>=2.0.0
+  development:
+    - pytest>=7.4.0
+    - pytest-cov>=4.1.0
+    - httpx>=0.24.0
+
+infrastructure:
+  compute:
+    port: 8020
+    service: AWS ECS Fargate (planned)
+  shared_dependencies:
+    - Uses common package from services/common/
+
+environments:
+  development:
+    port: 8020
+    database: Mock data in-memory
+    log_level: DEBUG
+
+api_specification:
+  base_path: /
+  authentication: Shared with workout-planner (future)
+  
+  endpoints:
+    - path: /
+      method: GET
+      description: Root endpoint with service info
+      
+    - path: /health
+      method: GET
+      description: Health check (from common package)
+      
+    - path: /ready
+      method: GET
+      description: Readiness check (from common package)
+      
+    - path: /tasks/{user_id}
+      method: GET
+      description: Get user's weekly tasks
+      response:
+        user_id: string
+        week_start: string
+        tasks: array of Task
+        
+    - path: /tasks/{user_id}
+      method: POST
+      description: Create new task
+      
+    - path: /tasks/{user_id}/{task_id}
+      method: PUT
+      description: Update task
+      
+    - path: /tasks/{user_id}/{task_id}
+      method: DELETE
+      description: Delete task
+      
+    - path: /goals/{user_id}
+      method: GET
+      description: Get user's home goals
+      
+    - path: /goals/{user_id}
+      method: POST
+      description: Create new goal
+
+data_models:
+  Task:
+    id: string (optional)
+    title: string
+    description: string (optional)
+    day: string
+    category: string
+    priority: string (default: "medium")
+    completed: boolean (default: false)
+    estimated_minutes: integer (optional)
+    
+  Goal:
+    id: string
+    title: string
+    description: string (optional)
+    category: string
+    target_date: string (optional)
+    progress: integer (default: 0, range: 0-100)
+    is_active: boolean (default: true)
+    
+  WeeklyTasks:
+    user_id: string
+    week_start: string
+    tasks: array of Task
+
+features:
+  current_mvp:
+    - Mock weekly task management
+    - Task categorization
+    - Priority levels
+    - Basic goal tracking
+    - Health check endpoints from common package
+    - Standard middleware (CORS, logging, security headers)
+    
+  planned:
+    - Database persistence
+    - Task completion tracking
+    - Recurring tasks
+    - Task notifications/reminders
+    - Goal progress analytics
+    - Calendar integration
+    - Shared task lists (family/household)
+
+deployment:
+  current: Local development only
+  planned:
+    - Docker container
+    - ECS deployment
+    - Shared load balancer with other services
+
+configuration:
+  shared_config:
+    uses: services/common/ServiceConfig
+    name: home-manager
+    title: "Home Manager API"
+    port: 8020
+    description: "Weekly home task management and goal tracking"

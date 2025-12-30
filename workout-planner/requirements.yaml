@@ -1,0 +1,605 @@
+# Workout Planner API - Requirements & Specifications
+# This is the source of truth for all aspects of the workout-planner service
+
+metadata:
+  name: workout-planner
+  version: "1.0.0"
+  description: "AI-powered fitness coaching API with personalized workout planning, readiness scoring, and health analytics"
+  owner: Rummel Tech
+  repository: services/workout-planner
+  deployed_url: "https://api.workout-planner.rummeltech.com"
+
+technical_stack:
+  language: Python 3.11+
+  framework: FastAPI 0.100+
+  databases:
+    primary: PostgreSQL 14+ (production)
+    development: SQLite 3+
+  caching: Redis 7+
+  ai_integration: OpenAI GPT-4
+  monitoring: Prometheus + CloudWatch
+  deployment: AWS ECS Fargate
+
+dependencies:
+  runtime:
+  - fastapi>=0.100.0
+  - uvicorn>=0.20.0
+  - pydantic>=2.0.0
+  - python-dotenv>=1.0.0
+  - psycopg2-binary>=2.9.0
+  - redis>=5.0.0
+  - PyJWT>=2.8.0
+  - passlib>=1.7.4
+  - bcrypt>=4.0.0
+  - python-multipart>=0.0.6
+  - httpx>=0.24.0
+  - openai>=1.0.0
+  - prometheus-client>=0.17.0
+  - slowapi>=0.1.9
+  - email-validator>=2.0.0
+  - google-auth>=2.0.0
+  development:
+  - pytest>=7.4.0
+  - pytest-cov>=4.1.0
+  - pytest-asyncio>=0.21.0
+  - httpx>=0.24.0
+
+infrastructure:
+  compute:
+    service: AWS ECS Fargate
+    cpu: 512 (0.5 vCPU)
+    memory: 1024 MB
+    autoscaling:
+      min_tasks: 1
+      max_tasks: 10
+      target_cpu: 70%
+  database:
+    engine: PostgreSQL
+    service: AWS RDS
+    instance: db.t3.micro
+    storage: 20 GB
+    backup_retention: 7 days
+  caching:
+    engine: Redis
+    service: AWS ElastiCache or self-hosted
+    node_type: cache.t3.micro
+  secrets:
+    service: AWS Secrets Manager
+    keys:
+    - JWT_SECRET
+    - DATABASE_URL
+    - OPENAI_API_KEY
+    - REDIS_URL
+  networking:
+    port: 8000
+    health_check_path: /health
+    protocol: HTTP
+    load_balancer: AWS ALB
+
+environments:
+  development:
+    database: sqlite:///fitness_dev.db
+    redis: optional
+    jwt_secret: dev-secret-change-in-prod
+    log_level: DEBUG
+    rate_limiting: disabled
+  staging:
+    database: AWS RDS (shared instance)
+    redis: required
+    log_level: INFO
+    rate_limiting: enabled (100 req/min)
+  production:
+    database: AWS RDS (dedicated)
+    redis: required (cluster mode)
+    log_level: WARNING
+    rate_limiting: enabled (60 req/min)
+    security_headers: enforced
+    cors_origins: [ "https://workout-planner.rummeltech.com" ]
+
+api_specification:
+  base_path: /
+  authentication: JWT Bearer Token
+  rate_limiting: 60 requests/minute (production)
+  cors: Configurable origins
+
+  endpoints:
+  # Authentication & User Management
+  - path: /auth/validate-code
+    method: POST
+    auth: none
+    description: Validate invite/access code
+    request:
+      code: string (required)
+    response:
+      valid: boolean
+
+  - path: /auth/register
+    method: POST
+    auth: none
+    description: Register new user
+    request:
+      email: string
+      password: string
+      invite_code: string
+    response:
+      user: User object
+
+  - path: /auth/login
+    method: POST
+    auth: none
+    description: User login
+    request:
+      email: string
+      password: string
+    response:
+      access_token: string
+      refresh_token: string
+      token_type: bearer
+
+  - path: /auth/refresh
+    method: POST
+    auth: refresh token
+    description: Refresh access token
+    response:
+      access_token: string
+
+  - path: /auth/me
+    method: GET
+    auth: required
+    description: Get current user profile
+    response:
+      user: User object
+
+  - path: /auth/logout
+    method: POST
+    auth: required
+    description: Logout and blacklist token
+
+  # Daily Workout Plans
+  - path: /daily-plans/{user_id}/{plan_date}
+    method: GET
+    auth: required
+    description: Get daily workout plan
+    parameters:
+      user_id: string
+      plan_date: string (YYYY-MM-DD)
+    response:
+      plan: DailyPlan object
+
+  - path: /daily-plans/{user_id}/{plan_date}
+    method: PUT
+    auth: required
+    description: Create/update daily plan
+    request:
+      plan: DailyPlan object
+
+  - path: /daily-plans/{user_id}/{plan_date}
+    method: DELETE
+    auth: required
+    description: Delete daily plan
+
+  - path: /daily-plans/{user_id}/{plan_date}/workouts/{workout_index}
+    method: PATCH
+    auth: required
+    description: Update specific workout in plan
+
+  # Weekly Workout Plans
+  - path: /weekly-plans/{user_id}/{week_start}
+    method: GET
+    auth: required
+    description: Get weekly workout plan
+
+  - path: /weekly-plans/{user_id}/{week_start}
+    method: PUT
+    auth: required
+    description: Create/update weekly plan
+
+  # Workouts
+  - path: /workouts
+    method: GET
+    auth: required
+    description: List user's workouts
+    query_params:
+      user_id: string
+      limit: integer
+
+  - path: /workouts
+    method: POST
+    auth: required
+    description: Create new workout
+
+  - path: /workouts/{workout_id}
+    method: GET
+    auth: required
+    description: Get workout details
+
+  - path: /workouts/{workout_id}
+    method: PUT
+    auth: required
+    description: Update workout
+
+  - path: /workouts/{workout_id}
+    method: DELETE
+    auth: required
+    description: Delete workout
+
+  - path: /workouts/type/{workout_type}
+    method: GET
+    auth: required
+    description: Get workouts by type
+
+  # Goals
+  - path: /goals/{user_id}
+    method: GET
+    auth: required
+    description: Get user's goals
+
+  - path: /goals/{user_id}
+    method: POST
+    auth: required
+    description: Create new goal
+
+  - path: /goals/{user_id}/{goal_id}
+    method: PUT
+    auth: required
+    description: Update goal
+
+  - path: /goals/{user_id}/{goal_id}
+    method: DELETE
+    auth: required
+    description: Delete goal
+
+  # Readiness & Health
+  - path: /readiness/{user_id}/{date}
+    method: GET
+    auth: required
+    description: Get readiness score for date
+    response:
+      readiness_score: float (0-100)
+      factors:
+        sleep_hours: float
+        hrv: float
+        resting_hr: float
+
+  - path: /readiness/{user_id}
+    method: POST
+    auth: required
+    description: Submit health metrics
+    request:
+      date: string
+      sleep_hours: float
+      hrv: float
+      resting_hr: float
+
+  # Workout Analytics
+  - path: /strength/process
+    method: POST
+    auth: required
+    description: Process strength workout metrics
+
+  - path: /swim/process
+    method: POST
+    auth: required
+    description: Process swim workout metrics
+
+  - path: /murph/process
+    method: POST
+    auth: required
+    description: Process Murph workout metrics
+
+  # AI Chat
+  - path: /chat
+    method: POST
+    auth: required
+    description: Chat with AI fitness coach
+    request:
+      message: string
+      context: object (optional)
+    response:
+      reply: string
+      suggestions: array
+
+  # Health Checks
+  - path: /health
+    method: GET
+    auth: none
+    description: Basic liveness check
+
+  - path: /ready
+    method: GET
+    auth: none
+    description: Readiness check (DB connectivity)
+
+  # Metrics
+  - path: /metrics
+    method: GET
+    auth: none
+    description: Prometheus metrics
+
+  # Admin
+  - path: /auth/admin/codes
+    method: GET
+    auth: admin required
+    description: List invite codes
+
+  - path: /auth/admin/codes/generate
+    method: POST
+    auth: admin required
+    description: Generate invite codes
+
+  - path: /auth/admin/waitlist
+    method: GET
+    auth: admin required
+    description: List waitlist users
+
+  - path: /auth/admin/waitlist/invite
+    method: POST
+    auth: admin required
+    description: Invite waitlist user
+
+data_models:
+  User:
+    id: uuid
+    email: string (unique)
+    hashed_password: string
+    created_at: timestamp
+    is_active: boolean
+    is_admin: boolean
+
+  DailyPlan:
+    user_id: uuid
+    date: date
+    readiness_score: float (0-100)
+    workouts: array of Workout
+    notes: string
+    created_at: timestamp
+    updated_at: timestamp
+
+  WeeklyPlan:
+    user_id: uuid
+    week_start: date
+    focus: string
+    days: array of DailyPlan
+
+  Workout:
+    id: uuid
+    user_id: uuid
+    type: enum (strength, run, swim, murph, bike, yoga, cardio, mobility, rest)
+    title: string
+    description: string
+    scheduled_date: date
+    duration_minutes: integer
+    warmup: array of Exercise
+    main_set: array of Exercise
+    cooldown: array of Exercise
+    completed: boolean
+    notes: string
+
+  Exercise:
+    name: string
+    sets: integer
+    reps: integer
+    weight: float
+    duration_seconds: integer
+    distance_meters: float
+    rest_seconds: integer
+    notes: string
+
+  Goal:
+    id: uuid
+    user_id: uuid
+    title: string
+    description: string
+    category: string
+    target_date: date
+    progress: integer (0-100)
+    is_active: boolean
+    created_at: timestamp
+
+  ReadinessMetrics:
+    user_id: uuid
+    date: date
+    sleep_hours: float
+    hrv: float (heart rate variability)
+    resting_hr: float (beats per minute)
+    readiness_score: float (0-100)
+
+features:
+  core:
+  - Daily workout plan generation
+  - Weekly workout scheduling (7-day view, max 3 workouts/day)
+  - Personalized AI recommendations
+  - Readiness score calculation
+  - Goal tracking and progress
+  - Workout history and analytics
+  - Multi-workout type support
+
+  authentication:
+  - Email/password registration
+  - Google OAuth (future)
+  - JWT access tokens (15 min expiry)
+  - JWT refresh tokens (7 day expiry)
+  - Token blacklisting on logout
+  - Invite code system
+  - Admin role management
+
+  ai_features:
+  - Daily plan generation based on readiness
+  - Weekly plan generation
+  - Chat-based coaching
+  - Strength analytics
+  - Swim analytics
+  - Murph workout analysis
+  - Adaptive recommendations
+
+  infrastructure:
+  - Redis caching for frequently accessed data
+  - Prometheus metrics
+  - Structured logging with correlation IDs
+  - Health and readiness endpoints
+  - Rate limiting
+  - CORS configuration
+  - Security headers
+  - Database connection pooling
+
+performance_requirements:
+  response_times:
+    p50: "< 100ms"
+    p95: "< 300ms"
+    p99: "< 500ms"
+  throughput:
+    sustained: "100 req/sec"
+    peak: "500 req/sec"
+  availability: "99.5%"
+  database:
+    connection_pool: 5-20 connections
+    query_timeout: 30 seconds
+  caching:
+    hit_ratio: "> 70%"
+    ttl: 300-3600 seconds (varies by endpoint)
+
+security:
+  authentication:
+  - JWT tokens with RS256 signing
+  - Password hashing with bcrypt
+  - Token expiration enforced
+  - Token blacklisting on logout
+  authorization:
+  - Role-based access control (user, admin)
+  - Resource ownership validation
+  headers:
+  - X-Content-Type-Options: nosniff
+  - X-Frame-Options: DENY
+  - X-XSS-Protection: 1; mode=block
+  - Referrer-Policy: strict-origin-when-cross-origin
+  - HSTS (production only)
+  rate_limiting:
+  - 60 requests/minute per IP (production)
+  - 10000 requests/minute (development)
+  data_protection:
+  - Passwords never stored in plain text
+  - Secrets in AWS Secrets Manager
+  - Database encryption at rest
+  - TLS in transit
+
+observability:
+  logging:
+    format: JSON structured logs
+    correlation_id: X-Request-ID header
+    levels:
+      development: DEBUG
+      staging: INFO
+      production: WARNING
+    destinations:
+    - stdout
+    - AWS CloudWatch Logs
+  metrics:
+    provider: Prometheus
+    endpoint: /metrics
+    collected:
+    - HTTP request duration
+    - Request count by endpoint
+    - Error count by type
+    - Database query duration
+    - Cache hit/miss ratio
+    - Active connections
+  tracing:
+    correlation_ids: all requests
+    request_logging: enabled
+
+testing:
+  unit_tests:
+    framework: pytest
+    coverage_target: "> 80%"
+    location: tests/
+  integration_tests:
+    database: SQLite in-memory
+    coverage: core flows
+  e2e_tests:
+    framework: pytest + httpx
+    scenarios:
+    - User registration and login
+    - Workout plan CRUD operations
+    - AI chat interaction
+  performance_tests:
+    tool: locust or k6
+    scenarios:
+    - Login flow
+    - Plan retrieval
+    - Workout creation
+
+deployment:
+  strategy: Blue/Green deployment
+  container:
+    registry: AWS ECR
+    image: workout-planner-api
+    health_check:
+      path: /health
+      interval: 30s
+      timeout: 5s
+      retries: 3
+  rollback:
+    automatic: on health check failure
+    manual: via CLI or console
+  ci_cd:
+    provider: GitHub Actions
+    triggers:
+    - push to main branch
+    - manual workflow dispatch
+    steps:
+    - Lint and format check
+    - Run unit tests
+    - Build Docker image
+    - Push to ECR
+    - Deploy to ECS
+    - Run smoke tests
+
+configuration:
+  required_env_vars:
+  - DATABASE_URL
+  - JWT_SECRET
+  - ENVIRONMENT
+  optional_env_vars:
+  - OPENAI_API_KEY
+  - REDIS_URL
+  - AWS_REGION
+  - LOG_LEVEL
+  - CORS_ORIGINS
+  - RATE_LIMIT_PER_MINUTE
+  config_sources:
+    priority:
+      1: Environment variables
+      2: AWS Secrets Manager (production)
+      3: .env file (development)
+      4: Default values
+
+maintenance:
+  database_migrations:
+    current: Auto-init with IF NOT EXISTS
+    planned: Alembic for managed migrations
+  backup_strategy:
+    database: Daily RDS snapshots (7 day retention)
+    frequency: Daily at 2 AM UTC
+  monitoring_alerts:
+  - Error rate > 1%
+  - Response time p99 > 1s
+  - Database connections > 80%
+  - Memory usage > 90%
+  - CPU usage > 85%
+
+future_enhancements:
+  planned:
+  - Managed database migrations (Alembic)
+  - Background task queue (Celery/RQ)
+  - Websocket support for real-time updates
+  - Multi-language support
+  - Advanced analytics dashboard
+  - Social features (share workouts)
+  - Wearable device integration
+  - Nutrition tracking integration
+  under_consideration:
+  - GraphQL API
+  - Mobile push notifications
+  - Video exercise library
+  - Group workout challenges
+  - Coach/client relationship features

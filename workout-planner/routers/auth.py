@@ -4,12 +4,12 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional
 from datetime import datetime
 import uuid
-from database import get_db, get_cursor
-from logging_config import get_logger
-import metrics
+from core.database import get_db, get_cursor
+from core.logging_config import get_logger
+from core import metrics
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from settings import get_settings
+from core.settings import get_settings
 
 log = get_logger("api.auth")
 
@@ -28,12 +28,12 @@ else:
     LOGIN_LIMIT = "10000/minute"
     REFRESH_LIMIT = "10000/minute"
     LOGOUT_LIMIT = "10000/minute"
-from auth_service import (
+from core.auth_service import (
     UserCreate, UserLogin, User, Token, TokenData,
     get_password_hash, verify_password,
     create_access_token, create_refresh_token, decode_token
 )
-from redis_client import is_token_blacklisted, blacklist_token
+from core.redis_client import is_token_blacklisted, blacklist_token
 import time
 
 router = APIRouter(prefix="/auth", tags=["authentication"])

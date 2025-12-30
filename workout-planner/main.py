@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from ai_engine import AIFitnessEngine
+from models.ai_engine import AIFitnessEngine
 from dotenv import load_dotenv
 from pathlib import Path
 import os
@@ -21,16 +21,16 @@ except ImportError:
     redis = None
     RedisError = None
 
-from aws_secrets import inject_secrets_from_aws
-from settings import get_settings, validate_settings
-from database import get_db, init_pg_pool, close_pg_pool
-from logging_config import init_logging, set_correlation_id, get_logger, correlation_id_var
-from error_handlers import install_error_handlers
-import metrics
+from core.aws_secrets import inject_secrets_from_aws
+from core.settings import get_settings, validate_settings
+from core.database import get_db, init_pg_pool, close_pg_pool
+from core.logging_config import init_logging, set_correlation_id, get_logger, correlation_id_var
+from core.error_handlers import install_error_handlers
+from core import metrics
 import uuid
 from routers import goals, health, strength, swim, murph, readiness, chat, auth, weekly_plans, daily_plans, meals, waitlist, workouts
-from redis_client import get_redis, is_redis_available
-from cache import get_cache_stats
+from core.redis_client import get_redis, is_redis_available
+from core.cache import get_cache_stats
 import traceback
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
