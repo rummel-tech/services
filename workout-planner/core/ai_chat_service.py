@@ -249,6 +249,9 @@ Current User Context:
     def _generate_mock_response(self, message: str, context: Dict[str, Any]) -> str:
         """Generate mock responses for development/testing"""
         message_lower = message.lower()
+        readiness_val = context.get("readiness")
+        if isinstance(readiness_val, dict):
+            readiness_val = readiness_val.get("readiness")
         
         if "goal" in message_lower:
             if context["goals"]:
@@ -257,7 +260,7 @@ Current User Context:
             return "I'd be happy to help you set some fitness goals! What would you like to achieve?"
         
         elif "workout" in message_lower or "training" in message_lower:
-            readiness = context.get("readiness")
+            readiness = readiness_val
             if readiness and readiness > 0.7:
                 return "Your readiness looks good! You're recovered and ready for a quality training session. Consider a moderate to high-intensity workout today."
             elif readiness and readiness > 0.5:

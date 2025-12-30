@@ -6,6 +6,8 @@ the running application.
 """
 import os
 from types import ModuleType
+import sys
+import types
 import core.database as _core_db
 
 
@@ -15,6 +17,23 @@ def _refresh_from_env() -> None:
 	if env_url:
 		setattr(_core_db, "DATABASE_URL", env_url)
 	setattr(_core_db, "USE_SQLITE", _core_db.DATABASE_URL.startswith("sqlite"))
+
+
+class _DatabaseModule(types.ModuleType):
+	"""Module proxy that keeps core.database in sync on assignment."""
+
+	def __setattr__(self, name: str, value):
+		if name == "DATABASE_URL":
+			setattr(_core_db, "DATABASE_URL", value)
+			setattr(_core_db, "USE_SQLITE", value.startswith("sqlite"))
+		if name == "USE_SQLITE":
+			setattr(_core_db, "USE_SQLITE", value)
+		return super().__setattr__(name, value)
+
+
+# Ensure assignments on this module also update core.database
+if not isinstance(sys.modules[__name__], _DatabaseModule):
+	sys.modules[__name__].__class__ = _DatabaseModule
 
 
 def init_sqlite():

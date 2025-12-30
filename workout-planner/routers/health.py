@@ -14,7 +14,9 @@ settings = get_settings()
 
 
 def _auth_bypass() -> bool:
-    return settings.disable_auth and settings.environment == "development"
+    current_settings = get_settings()
+    disable_auth_env = os.getenv("DISABLE_AUTH", "").lower() == "true"
+    return (current_settings.disable_auth or disable_auth_env) and current_settings.environment == "development"
 
 router = APIRouter(prefix="/health", tags=["health"])
 
