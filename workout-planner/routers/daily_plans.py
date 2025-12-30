@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional, List
 from core.database import get_db, get_cursor, USE_SQLITE
 from core.auth_service import TokenData
@@ -55,10 +55,14 @@ class Workout(BaseModel):
 
 class DailyPlanData(BaseModel):
     """A daily plan containing 1-3 workouts."""
+    model_config = ConfigDict(extra="allow")
     user_id: str
     date: str  # ISO date format
     workouts: List[Workout] = Field(default_factory=list, max_length=3)
     ai_notes: Optional[str] = None
+    # Legacy payload support (plan_json with warmup/main/cooldown/notes)
+    plan_json: Optional[dict] = None
+    status: Optional[str] = "pending"
 
     @field_validator('workouts')
     @classmethod
@@ -109,6 +113,32 @@ def build_response(user_id: str, plan_date: str, workouts: List[dict], ai_notes:
     }
 
 
+def include_legacy_fields(response: dict, plan_json: Optional[dict]) -> dict:
+    """Add legacy top-level warmup/main/cooldown/notes keys for compatibility."""
+    if not plan_json:
+        response.update({"warmup": [], "main": [], "cooldown": [], "notes": ""})
+        return response
+
+    if "workouts" in plan_json:
+        first = plan_json.get("workouts", [{}]) or [{}]
+        workout = first[0]
+        response.update({
+            "warmup": workout.get("warmup", []),
+            "main": workout.get("main", []),
+            "cooldown": workout.get("cooldown", []),
+            "notes": workout.get("notes", ""),
+        })
+    else:
+        response.update({
+            "warmup": plan_json.get("warmup", []),
+            "main": plan_json.get("main", []),
+            "cooldown": plan_json.get("cooldown", []),
+            "notes": plan_json.get("notes", ""),
+        })
+
+    return response
+
+
 # ============================================================
 # API Endpoints
 # ============================================================
@@ -141,7 +171,15 @@ def get_daily_plan(user_id: str, plan_date: str, current_user: TokenData = Depen
                 "notes": "",
                 "status": "pending"
             }
+            plan_json = {
+                "warmup": [],
+                "main": [],
+                "cooldown": [],
+                "notes": "",
+            }
             result = build_response(user_id, plan_date, [default_workout], None)
+            include_legacy_fields(result, plan_json)
+            result["status"] = "pending"
             log.info("daily_plan_default", extra={"user_id": user_id, "date": plan_date})
             metrics.record_domain_event("daily_plan_default")
             return result
@@ -167,6 +205,8 @@ def get_daily_plan(user_id: str, plan_date: str, current_user: TokenData = Depen
             workouts=workouts,
             ai_notes=result.get('ai_notes')
         )
+        include_legacy_fields(response, result.get('plan_json'))
+        response["status"] = result.get("status", "pending")
 
         log.info("daily_plan_retrieved", extra={
             "user_id": user_id,
@@ -193,21 +233,29 @@ def update_daily_plan(user_id: str, plan_date: str, plan: DailyPlanData, current
     with get_db() as conn:
         cur = get_cursor(conn)
 
-        # Store workouts in the new format
-        plan_json = {
-            "workouts": [w.model_dump() for w in plan.workouts]
-        }
-        plan_json_str = json.dumps(plan_json)
+        # Prefer legacy payload if provided, otherwise use structured workouts
+        legacy_plan = plan.plan_json
+        if legacy_plan is None and hasattr(plan, "model_extra"):
+            legacy_plan = plan.model_extra.get("plan_json")
 
-        # Compute overall status based on workouts
-        # If all workouts complete -> complete, if any skipped and rest complete/skipped -> skipped, else pending
-        statuses = [w.status for w in plan.workouts] if plan.workouts else ['pending']
-        if all(s == 'complete' for s in statuses):
-            overall_status = 'complete'
-        elif all(s in ('complete', 'skipped') for s in statuses):
-            overall_status = 'skipped' if any(s == 'skipped' for s in statuses) else 'complete'
+        if legacy_plan is not None:
+            plan_json = legacy_plan
+            stored_workouts = migrate_old_format_to_new(plan_json)
+            overall_status = plan.status or plan_json.get("status", "pending")
         else:
-            overall_status = 'pending'
+            stored_workouts = [w.model_dump() for w in plan.workouts]
+            plan_json = {"workouts": stored_workouts}
+
+            # Compute overall status based on workouts
+            statuses = [w.status for w in plan.workouts] if plan.workouts else [plan.status or 'pending']
+            if all(s == 'complete' for s in statuses):
+                overall_status = 'complete'
+            elif all(s in ('complete', 'skipped') for s in statuses):
+                overall_status = 'skipped' if any(s == 'skipped' for s in statuses) else 'complete'
+            else:
+                overall_status = 'pending'
+
+        plan_json_str = json.dumps(plan_json)
 
         if USE_SQLITE:
             query = """
@@ -239,9 +287,11 @@ def update_daily_plan(user_id: str, plan_date: str, plan: DailyPlanData, current
         response = build_response(
             user_id=user_id,
             plan_date=plan_date,
-            workouts=[w.model_dump() for w in plan.workouts],
+            workouts=stored_workouts,
             ai_notes=plan.ai_notes
         )
+        include_legacy_fields(response, plan_json)
+        response["status"] = overall_status
         response["message"] = "Daily plan saved successfully"
 
         log.info("daily_plan_saved", extra={

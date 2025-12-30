@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, status
 from pydantic import BaseModel
 from typing import Optional
+import os
 from core.database import get_db, get_cursor, USE_SQLITE
 from core.logging_config import get_logger
 from core.settings import get_settings
@@ -13,7 +14,10 @@ settings = get_settings()
 
 
 def _auth_bypass() -> bool:
-    return settings.disable_auth and settings.environment == "development"
+    # Re-evaluate settings each call to honor test overrides
+    current_settings = get_settings()
+    disable_auth_env = os.getenv("DISABLE_AUTH", "").lower() == "true"
+    return (current_settings.disable_auth or disable_auth_env) and current_settings.environment == "development"
 
 router = APIRouter(prefix="/goals", tags=["goals"])
 

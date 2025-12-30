@@ -27,6 +27,8 @@ def setup_test_database(db_path: str, reset_codes: bool = True) -> None:
     """
     # Set environment variable
     os.environ["DATABASE_URL"] = f"sqlite:///{db_path}"
+    # Enforce authentication for tests that expect real auth checks
+    os.environ["DISABLE_AUTH"] = "false"
 
     # Clear settings cache
     from settings import get_settings

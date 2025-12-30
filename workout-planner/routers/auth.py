@@ -4,6 +4,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Optional
 from datetime import datetime
 import uuid
+import os
 from core.database import get_db, get_cursor
 from core.logging_config import get_logger
 from core import metrics
@@ -47,8 +48,11 @@ def get_current_user(credentials: Optional[HTTPAuthorizationCredentials] = Depen
     """
     settings = get_settings()
 
-    # Development mode bypass
-    if settings.disable_auth and settings.environment == "development":
+    # Environment override for test/dev flows
+    disable_auth_env = os.getenv("DISABLE_AUTH", "").lower() == "true"
+
+    # Development mode bypass only when no credentials are provided
+    if (settings.disable_auth or disable_auth_env) and settings.environment == "development" and credentials is None:
         log.info("auth_bypassed_dev_mode", extra={"stub_user": "user-123"})
         return TokenData(
             user_id="user-123",

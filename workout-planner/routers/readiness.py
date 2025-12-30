@@ -32,16 +32,17 @@ def _avg(values):
 def _calculate_readiness(user_id: str) -> dict:
     """Calculate readiness score with expensive database queries and computations."""
     now = datetime.utcnow()
-    day_window_start = (now - timedelta(days=1)).isoformat(timespec='seconds')
+    day_window_start = (now - timedelta(days=90)).isoformat(timespec='seconds')
+    recent_cutoff = (now - timedelta(days=1)).isoformat(timespec='seconds')
     baseline_window_start = (now - timedelta(days=14)).isoformat(timespec='seconds')
     with get_db() as conn:
-        # Fetch last day samples
-        hrvs = _query(conn, "SELECT value FROM health_samples WHERE user_id = %s AND sample_type = 'hrv' AND start_time >= %s", (user_id, day_window_start))
-        rests = _query(conn, "SELECT value FROM health_samples WHERE user_id = %s AND sample_type = 'resting_hr' AND start_time >= %s", (user_id, day_window_start))
+        # Fetch most recent values for current state
+        hrvs = _query(conn, "SELECT value FROM health_samples WHERE user_id = %s AND sample_type = 'hrv' ORDER BY start_time DESC LIMIT 1", (user_id,))
+        rests = _query(conn, "SELECT value FROM health_samples WHERE user_id = %s AND sample_type = 'resting_hr' ORDER BY start_time DESC LIMIT 1", (user_id,))
         sleeps = _query(conn, "SELECT (julianday(end_time) - julianday(start_time))*24.0 AS hours FROM health_samples WHERE user_id = %s AND sample_type = 'sleep_stage' AND start_time >= %s", (user_id, day_window_start))
         # Baselines (14 days)
-        hrv_baseline = _query(conn, "SELECT value FROM health_samples WHERE user_id = %s AND sample_type = 'hrv' AND start_time >= %s", (user_id, baseline_window_start))
-        resting_baseline = _query(conn, "SELECT value FROM health_samples WHERE user_id = %s AND sample_type = 'resting_hr' AND start_time >= %s", (user_id, baseline_window_start))
+        hrv_baseline = _query(conn, "SELECT value FROM health_samples WHERE user_id = %s AND sample_type = 'hrv' AND start_time >= %s AND start_time < %s", (user_id, baseline_window_start, recent_cutoff))
+        resting_baseline = _query(conn, "SELECT value FROM health_samples WHERE user_id = %s AND sample_type = 'resting_hr' AND start_time >= %s AND start_time < %s", (user_id, baseline_window_start, recent_cutoff))
     hrv_values = [r['value'] if isinstance(r, dict) else r[0] for r in hrvs]
     resting_values = [r['value'] if isinstance(r, dict) else r[0] for r in rests]
     sleep_hours = [r['hours'] if isinstance(r, dict) else r[0] for r in sleeps]

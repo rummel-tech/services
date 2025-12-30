@@ -9,12 +9,18 @@ from datetime import datetime
 import json
 from core.database import get_db, get_cursor
 from core.logging_config import get_logger
+from core.settings import get_settings
 import metrics
 from core.auth_service import TokenData
 from routers.auth import get_current_user
 
 log = get_logger("api.chat")
+settings = get_settings()
 from core.ai_chat_service import chat_service
+
+
+def _auth_bypass() -> bool:
+    return settings.disable_auth and settings.environment == "development"
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -46,7 +52,7 @@ class SessionResponse(BaseModel):
 @router.post("/sessions")
 async def create_session(session: ChatSession, current_user: TokenData = Depends(get_current_user)):
     """Create a new chat session"""
-    if current_user.user_id != session.user_id:
+    if not _auth_bypass() and current_user.user_id != session.user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden: user mismatch")
     with get_db() as conn:
         cur = get_cursor(conn)
@@ -73,7 +79,7 @@ async def create_session(session: ChatSession, current_user: TokenData = Depends
 @router.get("/sessions")
 async def list_sessions(user_id: str, limit: int = 20, current_user: TokenData = Depends(get_current_user)):
     """List user's chat sessions"""
-    if current_user.user_id != user_id:
+    if not _auth_bypass() and current_user.user_id != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden: user mismatch")
     with get_db() as conn:
         cur = get_cursor(conn)

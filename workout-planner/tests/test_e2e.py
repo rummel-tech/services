@@ -10,7 +10,22 @@ Assertions verify cross-feature consistency.
 """
 import os
 import sqlite3
+import sys
 from fastapi.testclient import TestClient
+
+# Enable auth bypass for this end-to-end flow (other tests enforce auth)
+os.environ["DISABLE_AUTH"] = "true"
+from core.settings import get_settings
+get_settings.cache_clear()
+
+# Remove cached modules so settings reload with bypass enabled
+modules_to_remove = [m for m in list(sys.modules.keys()) if any(
+    m == name or m.startswith(f"{name}.")
+    for name in ["main", "routers", "auth_service", "ai_chat_service", "ai_engine"]
+)]
+for m in modules_to_remove:
+    del sys.modules[m]
+
 from main import app
 import database
 

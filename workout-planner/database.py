@@ -4,8 +4,22 @@ This module proxies all attribute access and assignment to ``core.database`` so
 test fixtures can override ``DATABASE_URL`` and have the change respected by
 the running application.
 """
+import os
 from types import ModuleType
 import core.database as _core_db
+
+
+def _refresh_from_env() -> None:
+	"""Sync DATABASE_URL/USE_SQLITE with the latest environment variable."""
+	env_url = os.environ.get("DATABASE_URL")
+	if env_url:
+		setattr(_core_db, "DATABASE_URL", env_url)
+	setattr(_core_db, "USE_SQLITE", _core_db.DATABASE_URL.startswith("sqlite"))
+
+
+def init_sqlite():
+	_refresh_from_env()
+	return _core_db.init_sqlite()
 
 
 def __getattr__(name: str):
@@ -23,7 +37,7 @@ def __setattr__(name: str, value):
 
 # Eagerly initialize SQLite when available so legacy imports still work
 try:
-	_core_db.init_sqlite()
+	init_sqlite()
 except Exception:
 	# Allow tests to configure DB paths later without failing import
 	pass

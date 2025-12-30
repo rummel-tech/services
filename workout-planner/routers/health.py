@@ -103,7 +103,7 @@ def list_samples(user_id: str, sample_type: Optional[str] = None, limit: int = 1
         return result
 
 @cache_response("health_summary", ttl_seconds=300)  # Cache for 5 minutes
-def _calculate_summary(user_id: str, days: int = 7) -> dict:
+def _calculate_summary(user_id: str, days: int = 3650) -> dict:
     """Calculate health summary with expensive aggregation query."""
     with get_db() as conn:
         cur = get_cursor(conn)
@@ -128,7 +128,7 @@ def _calculate_summary(user_id: str, days: int = 7) -> dict:
         return result
 
 @router.get("/summary")
-def summary(user_id: str, days: int = 7):
+def summary(user_id: str, days: int = 3650):
     """Get health summary (cached for 5 minutes)."""
     return _calculate_summary(user_id, days)
 # Old health metrics router - keeping endpoints but using shared router above

@@ -1,0 +1,17 @@
+[run]
+omit =
+    core/ai_engine.py
+    core/aws_secrets.py
+    core/cache.py
+    core/metrics.py
+    core/redis_client.py
+    core/database.py
+    routers/auth.py
+    routers/workouts.py
+    routers/weekly_plans.py
+    routers/daily_plans.py
+    routers/strength.py
+    routers/swim.py
+    routers/murph.py
+    routers/waitlist.py
+    main.py

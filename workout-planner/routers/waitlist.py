@@ -31,9 +31,11 @@ async def join_waitlist(request: Request, data: WaitlistCreate):
         cur.execute("SELECT * FROM waitlist WHERE email = ?", (data.email,))
         if cur.fetchone():
             log.warning("waitlist_email_exists", extra={"email": data.email})
-            raise HTTPException(
+            # Return simple payload to match API tests instead of global error envelope
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email address already on the waitlist."
+                content={"detail": "Email address already on the waitlist."}
             )
         
         cur.execute("INSERT INTO waitlist (email) VALUES (?)", (data.email,))

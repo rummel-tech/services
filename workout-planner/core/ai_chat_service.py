@@ -51,7 +51,7 @@ class AIChatService:
             # Fallback to mock mode for development
             logger.warning("No AI provider configured. Using mock responses.")
     
-    def get_user_context(self, user_id: str, days: int = 7) -> Dict[str, Any]:
+    def get_user_context(self, user_id: str, days: int = 90) -> Dict[str, Any]:
         """Retrieve user's recent health data, goals, and readiness for context"""
         context = {
             "goals": [],
@@ -95,20 +95,24 @@ class AIChatService:
                     for row in health
                 }
             
-            # Calculate simple readiness from available metrics
-            hrv = context["recent_health"].get("hrv", {}).get("avg")
-            resting_hr = context["recent_health"].get("resting_hr", {}).get("avg")
-            sleep = context["recent_health"].get("sleep", {}).get("avg")
-            
-            if hrv or resting_hr or sleep:
-                readiness_score = 0.5  # baseline
-                if hrv and hrv > 40:
-                    readiness_score += 0.2
-                if resting_hr and resting_hr < 60:
-                    readiness_score += 0.2
-                if sleep and sleep >= 7:
-                    readiness_score += 0.1
-                context["readiness"] = min(readiness_score, 1.0)
+            # Use shared readiness computation to keep chat context aligned with API
+            try:
+                from routers.readiness import _calculate_readiness
+                context["readiness"] = _calculate_readiness(user_id)
+            except Exception:
+                # If readiness fails, fall back to simple aggregate
+                hrv = context["recent_health"].get("hrv", {}).get("avg")
+                resting_hr = context["recent_health"].get("resting_hr", {}).get("avg")
+                sleep = context["recent_health"].get("sleep", {}).get("avg")
+                if hrv or resting_hr or sleep:
+                    readiness_score = 0.5  # baseline
+                    if hrv and hrv > 40:
+                        readiness_score += 0.2
+                    if resting_hr and resting_hr < 60:
+                        readiness_score += 0.2
+                    if sleep and sleep >= 7:
+                        readiness_score += 0.1
+                    context["readiness"] = min(readiness_score, 1.0)
         
         # Build context summary
         summary_parts = []
@@ -117,8 +121,10 @@ class AIChatService:
         if context["recent_health"]:
             metrics = ", ".join(context["recent_health"].keys())
             summary_parts.append(f"Recent metrics: {metrics}")
-        if context["readiness"] is not None:
-            summary_parts.append(f"Readiness: {context['readiness']:.0%}")
+            if context["readiness"] is not None:
+                readiness_val = context["readiness"].get("readiness") if isinstance(context["readiness"], dict) else context["readiness"]
+                if readiness_val is not None:
+                    summary_parts.append(f"Readiness: {readiness_val:.0%}")
         
         context["summary"] = ". ".join(summary_parts) if summary_parts else "No recent data available"
         
@@ -153,7 +159,9 @@ Current User Context:
             prompt += "\n"
         
         if context["readiness"] is not None:
-            prompt += f"Current Readiness Score: {context['readiness']:.0%}\n\n"
+            readiness_val = context["readiness"].get("readiness") if isinstance(context["readiness"], dict) else context["readiness"]
+            if readiness_val is not None:
+                prompt += f"Current Readiness Score: {readiness_val:.0%}\n\n"
         
         prompt += "Be concise, actionable, and supportive in your responses."
         

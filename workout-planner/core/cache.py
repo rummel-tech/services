@@ -3,11 +3,20 @@ import json
 import hashlib
 from typing import Optional, Any, Callable
 from functools import wraps
-from core.redis_client import get_redis
+from importlib import import_module
 from core.logging_config import get_logger
 import metrics
 
 log = get_logger("cache")
+
+
+def _get_redis():
+    """Resolve Redis client via shim-able cache module (for tests)."""
+    try:
+        cache_module = import_module("cache")
+        return cache_module.get_redis()
+    except Exception:
+        return None
 
 
 def _generate_cache_key(prefix: str, *args, **kwargs) -> str:
@@ -44,7 +53,7 @@ def cache_response(prefix: str, ttl_seconds: int = 300):
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args, **kwargs):
-            redis_client = get_redis()
+            redis_client = _get_redis()
 
             # If Redis unavailable, skip caching
             if redis_client is None:
@@ -114,7 +123,7 @@ def invalidate_cache(pattern: str) -> bool:
     Returns:
         True if successful, False if Redis unavailable
     """
-    redis_client = get_redis()
+    redis_client = _get_redis()
 
     if redis_client is None:
         log.debug("cache_invalidate_skip", extra={"reason": "redis_unavailable"})
@@ -185,7 +194,7 @@ def get_cache_stats() -> dict:
     Returns:
         Dictionary with cache stats or empty dict if Redis unavailable
     """
-    redis_client = get_redis()
+    redis_client = _get_redis()
 
     if redis_client is None:
         return {"available": False}
