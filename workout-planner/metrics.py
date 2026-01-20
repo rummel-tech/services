@@ -1,39 +1,80 @@
-"""Lightweight metrics shim for tests/dev to avoid optional deps.
-Delegates to core.metrics if available; otherwise provides no-op counters/gauges.
 """
-from typing import Any
+Metrics shim for Workout Planner.
+
+Delegates to the common library's metrics implementation with fallback.
+"""
+
+import sys
+from pathlib import Path
+
+# Add common package to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 try:
-    from core.metrics import *  # type: ignore
-except Exception:  # pragma: no cover - fallback when prometheus not installed
+    from common.metrics import (
+        init_metrics,
+        start_timer,
+        observe_request,
+        inc_requests_in_progress,
+        dec_requests_in_progress,
+        record_error,
+        record_domain_event,
+        record_cache_operation,
+        record_db_operation,
+        record_redis_operation,
+        metrics_response,
+    )
+
+    # For backward compatibility with code that references REQUESTS_IN_PROGRESS directly
+    from common.metrics import _get_metrics
+    _m = _get_metrics()
+    REQUESTS_IN_PROGRESS = _m["requests_in_progress"] if _m else None
+
+except ImportError:
+    # Fallback when prometheus not installed
     import time
 
     class _NoopCounter:
-        def labels(self, **kwargs: Any):
+        def labels(self, **kwargs):
             return self
-
-        def inc(self, amount: float = 1.0):
-            return None
-
-        def dec(self, amount: float = 1.0):
-            return None
-
-        def observe(self, value: float):
-            return None
+        def inc(self, amount=1.0):
+            pass
+        def dec(self, amount=1.0):
+            pass
+        def observe(self, value):
+            pass
 
     REQUESTS_IN_PROGRESS = _NoopCounter()
 
-    def start_timer() -> float:
+    def init_metrics(prefix="service"):
+        pass
+
+    def start_timer():
         return time.time()
 
-    def observe_request(method: str, path: str, status_code: int, start_time: float) -> None:
-        return None
+    def observe_request(method, path, status_code, start_time):
+        pass
 
-    def record_domain_event(event: str, **kwargs: Any) -> None:
-        return None
+    def inc_requests_in_progress(method, path):
+        pass
 
-    def record_error(event: str, **kwargs: Any) -> None:
-        return None
+    def dec_requests_in_progress(method, path):
+        pass
 
-    def record_cache_operation(kind: str) -> None:
-        return None
+    def record_error(error_type):
+        pass
+
+    def record_domain_event(event):
+        pass
+
+    def record_cache_operation(operation):
+        pass
+
+    def record_db_operation(operation, table, latency_seconds=None):
+        pass
+
+    def record_redis_operation(operation, success):
+        pass
+
+    def metrics_response():
+        return b"# Metrics not available\n", "text/plain"

@@ -4,20 +4,58 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "services-common"
-version = "0.1.0"
-description = "Common utilities for Rummel services"
+version = "0.2.0"
+description = "Common utilities for Rummel services - production-ready FastAPI features"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     "pydantic>=2.10.0",
+    "pydantic-settings>=2.1.0",
 ]
 
 [project.optional-dependencies]
+# Core optional features
+metrics = [
+    "prometheus-client>=0.17.0",
+]
+redis = [
+    "redis>=5.0.0",
+]
+rate-limiting = [
+    "slowapi>=0.1.9",
+]
+aws = [
+    "boto3>=1.28.0",
+]
+
+# All optional features
+all = [
+    "prometheus-client>=0.17.0",
+    "redis>=5.0.0",
+    "slowapi>=0.1.9",
+    "boto3>=1.28.0",
+]
+
+# Development dependencies
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "pytest-cov>=4.1.0",
+    "httpx>=0.24.0",
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = [
+    "--strict-markers",
+    "--tb=short",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+]

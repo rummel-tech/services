@@ -1,53 +1,51 @@
+"""
+Workout Planner specific settings.
+
+Extends the common BaseServiceSettings with workout-planner-specific fields.
+"""
+
+import sys
+from pathlib import Path
 from functools import lru_cache
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator
 from typing import List, Union
 
+from pydantic import field_validator
+from pydantic_settings import SettingsConfigDict
 
-class AppSettings(BaseSettings):
+# Add common package to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
+from common.settings import BaseServiceSettings
+
+
+class WorkoutPlannerSettings(BaseServiceSettings):
+    """Settings specific to the Workout Planner service."""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
-        extra="ignore"  # Ignore extra fields like DB_PASSWORD (used by Docker Compose)
+        extra="ignore"
     )
 
-    # Application context
+    # Override defaults for this service
     app_name: str = "workout-planner"
-    app_context: str = ""  # Optional context path (e.g., "/api/v1")
-
-    # Server configuration
-    host: str = "0.0.0.0"
     port: int = 8000
 
-    environment: str = "development"  # development | staging | production
-    debug: bool = False
-    disable_auth: bool = True  # Default bypass auth in development/testing
+    # Database (required for this service)
     database_url: str = "sqlite:///fitness_dev.db"
-    jwt_secret: str = "CHANGE_ME_IN_PRODUCTION"
-    jwt_algorithm: str = "HS256"
-    access_token_exp_minutes: int = 60
+
+    # Redis (enabled by default for this service)
+    redis_enabled: bool = True
+    redis_url: str = "redis://localhost:6379/0"
+
+    # CORS origins for this service
     cors_origins: Union[List[str], str] = [
         "http://localhost:3000",
         "http://localhost:8080",
         "http://localhost:8081",
         "http://127.0.0.1:8080",
     ]
-    log_level: str = "info"
-    redis_url: str = "redis://localhost:6379/0"
-    redis_enabled: bool = True
-
-    @field_validator("environment")
-    @classmethod
-    def _normalize_env(cls, v: str) -> str:
-        return v.lower()
-
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def _parse_cors(cls, v: Union[str, List[str]]) -> List[str]:
-        if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",")]
-        return v
 
     @field_validator("database_url")
     @classmethod
@@ -58,29 +56,25 @@ class AppSettings(BaseSettings):
             raise ValueError("Production environment must not use SQLite. Provide a Postgres DATABASE_URL.")
         return v
 
-    @field_validator("jwt_secret")
-    @classmethod
-    def _warn_default_secret(cls, v: str, info) -> str:
-        env = info.data.get("environment", "development")
-        if env == "production" and v == "CHANGE_ME_IN_PRODUCTION":
-            raise ValueError("jwt_secret must be set for production and cannot use default placeholder.")
-        return v
 
-    @field_validator("disable_auth")
-    @classmethod
-    def _prevent_disable_auth_in_prod(cls, v: bool, info) -> bool:
-        env = info.data.get("environment", "development")
-        if env == "production" and v:
-            raise ValueError("Authentication cannot be disabled in production.")
-        return v
+# Cached settings getter
+_settings_instance = None
 
 
-@lru_cache
-def get_settings() -> AppSettings:
-    return AppSettings()
+def get_settings() -> WorkoutPlannerSettings:
+    """Get cached settings instance."""
+    global _settings_instance
+    if _settings_instance is None:
+        _settings_instance = WorkoutPlannerSettings()
+    return _settings_instance
 
 
-def validate_settings():
-    s = get_settings()
-    # Add any additional runtime checks if needed
-    return s
+def validate_settings() -> WorkoutPlannerSettings:
+    """Validate and return settings."""
+    return get_settings()
+
+
+def clear_settings_cache():
+    """Clear settings cache (for testing)."""
+    global _settings_instance
+    _settings_instance = None

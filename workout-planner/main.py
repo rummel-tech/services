@@ -1,156 +1,83 @@
-from fastapi import FastAPI, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from models.ai_engine import AIFitnessEngine
-from dotenv import load_dotenv
+"""
+Workout Planner API - AI-powered fitness coaching service.
+
+This module creates the FastAPI application using the common library factory,
+while keeping workout-planner-specific routers and domain logic.
+"""
+
+import sys
 from pathlib import Path
-import os
-import time
-import sqlite3
+from dotenv import load_dotenv
+from pydantic import BaseModel
 
-try:
-    import psycopg2
-except ImportError:
-    psycopg2 = None
+# Add common package to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-try:
-    import redis
-    from redis.exceptions import RedisError
-except ImportError:
-    redis = None
-    RedisError = None
-
-from core.aws_secrets import inject_secrets_from_aws
-from core.settings import get_settings, validate_settings
-from core.database import get_db, init_pg_pool, close_pg_pool
-from core.logging_config import init_logging, set_correlation_id, get_logger, correlation_id_var
-from core.error_handlers import install_error_handlers
-from core import metrics
-import uuid
-from routers import goals, health, strength, swim, murph, readiness, chat, auth, weekly_plans, daily_plans, meals, waitlist, workouts
-from core.redis_client import get_redis, is_redis_available
-from core.cache import get_cache_stats
-import traceback
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
-
-# Load environment variables: default .env, then centralized config/secrets/local.env if present
+# Load environment variables before any other imports
 def _load_env():
+    """Load environment variables from .env files."""
+    import os
     try:
-        # Load from current working dir .env (non-overriding)
         load_dotenv(override=False)
-        # If SECRETS_ENV_PATH is set, load that file (overrides)
         custom_path = os.environ.get("SECRETS_ENV_PATH")
         if custom_path:
             secrets_env = Path(custom_path)
         else:
-            # Default: repo root config/secrets/local.env (overrides)
-            repo_root = Path(__file__).resolve().parents[3]
+            repo_root = Path(__file__).resolve().parents[2]
             secrets_env = repo_root / "config" / "secrets" / "local.env"
         if secrets_env.exists():
             load_dotenv(dotenv_path=secrets_env, override=True)
     except Exception:
-        # Non-fatal if dotenv not available or file missing
         pass
 
 _load_env()
+
+# Import and inject AWS secrets before settings validation
+from common.aws_secrets import inject_secrets_from_aws
 inject_secrets_from_aws()
 
-settings = validate_settings()
-init_logging()
+# Now import everything else
+from common import create_app, ServiceConfig
+from core.settings import get_settings
+from core.database import init_pg_pool, close_pg_pool
+from models.ai_engine import AIFitnessEngine
+from routers import (
+    goals, health, strength, swim, murph, readiness,
+    chat, auth, weekly_plans, daily_plans, meals, waitlist, workouts
+)
 
-app = FastAPI(
-    debug=settings.debug,
+# Get settings
+settings = get_settings()
+
+# Create the service configuration
+config = ServiceConfig(
+    name="workout-planner",
     title="Fitness AI API",
     version="1.0.0",
+    description="AI-powered fitness coaching API with personalized workout planning, readiness scoring, and health integration",
+    port=settings.port,
+    environment=settings.environment,
+    debug=settings.debug,
+    log_level=settings.log_level,
+    cors_origins=settings.cors_origins if isinstance(settings.cors_origins, list) else [settings.cors_origins],
+    enable_security_headers=True,
+    enable_request_logging=True,
+    enable_error_handlers=True,
+    enable_metrics=True,
+    enable_rate_limiting=(settings.environment == "production"),
+    redis_enabled=settings.redis_enabled,
+    redis_url=settings.redis_url,
     on_startup=[init_pg_pool],
     on_shutdown=[close_pg_pool],
 )
 
+# Create the app using the common factory
+app = create_app(config)
+
+# Initialize the AI engine
 engine = AIFitnessEngine()
-log = get_logger("app")
-install_error_handlers(app)
 
-# Configure rate limiting (disabled in development for testing)
-if settings.environment == "production":
-    limiter = Limiter(key_func=get_remote_address)
-    app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-else:
-    # Use a very high limit for dev/test to avoid interference
-    limiter = Limiter(key_func=get_remote_address, default_limits=["10000 per minute"])
-    app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-# Middleware for security headers
-@app.middleware("http")
-async def security_headers_middleware(request: Request, call_next):
-    response = await call_next(request)
-    # Add security headers to all responses
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["X-XSS-Protection"] = "1; mode=block"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-
-    # Only add HSTS in production (requires HTTPS)
-    if settings.environment == "production":
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-
-    # Basic Content Security Policy
-    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
-
-    return response
-
-# Middleware for request logging & correlation id
-@app.middleware("http")
-async def request_logging_middleware(request: Request, call_next):
-    cid = set_correlation_id()
-    start_perf = metrics.start_timer()
-    metrics.REQUESTS_IN_PROGRESS.labels(method=request.method, path=request.url.path).inc()
-    get_logger("app.request").info("request_start", extra={"path": request.url.path, "method": request.method})
-    try:
-        response = await call_next(request)
-    except Exception as e:
-        metrics.record_error("unhandled_exception")
-        get_logger("app.request").error(
-            "request_error",
-            extra={
-                "path": request.url.path,
-                "method": request.method,
-                "error": str(e),
-                "error_type": type(e).__name__,
-            },
-        )
-        raise
-    finally:
-        metrics.REQUESTS_IN_PROGRESS.labels(method=request.method, path=request.url.path).dec()
-    route_obj = request.scope.get("route")
-    path_template = route_obj.path if route_obj else request.url.path
-    duration_ms = int((time.time() - start_perf) * 1000)
-    get_logger("app.request").info(
-        "request_end",
-        extra={
-            "path": path_template,
-            "method": request.method,
-            "status_code": response.status_code,
-            "duration_ms": duration_ms,
-        },
-    )
-    metrics.observe_request(request.method, path_template, response.status_code, start_perf)
-    response.headers["X-Request-ID"] = cid
-    return response
-
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins if settings.environment != "development" else ["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Include routers
+# Include domain-specific routers
 app.include_router(auth.router)
 app.include_router(goals.router)
 app.include_router(health.router)
@@ -165,39 +92,13 @@ app.include_router(meals.router)
 app.include_router(waitlist.router)
 app.include_router(workouts.router)
 
-# Root endpoint
-@app.get("/")
-def root():
-    """API root endpoint with service information"""
-    return {
-        "service": "Workout Planner API",
-        "version": "1.0.0",
-        "status": "operational",
-        "environment": settings.environment,
-        "endpoints": {
-            "health": "/health",
-            "readiness": "/ready",
-            "metrics": "/metrics",
-            "cache_stats": "/cache/stats",
-            "documentation": "/docs",
-            "openapi_spec": "/openapi.json"
-        },
-        "features": [
-            "Authentication & JWT tokens",
-            "Health metrics tracking",
-            "Workout planning (daily & weekly)",
-            "Nutrition planning",
-            "Readiness scoring",
-            "AI-powered recommendations",
-            "Prometheus monitoring",
-            "Response caching"
-        ]
-    }
 
+# Domain-specific request/response models
 class UserData(BaseModel):
     hrv: float | None = None
     sleep_hours: float | None = None
     resting_hr: float | None = None
+
 
 class WorkoutData(BaseModel):
     distance_m: float | None = None
@@ -208,92 +109,33 @@ class WorkoutData(BaseModel):
     calis_s: float | None = None
     run2_s: float | None = None
 
-@app.post("/daily")
+
+# Legacy AI engine endpoints (kept for backward compatibility)
+@app.post("/daily", tags=["AI Engine"])
 def daily_plan(user: UserData):
+    """Generate a daily workout plan based on user health data."""
     return engine.generate_daily_plan(user.dict())
 
-@app.post("/weekly")
+
+@app.post("/weekly", tags=["AI Engine"])
 def weekly_plan(user: UserData):
+    """Generate a weekly workout plan based on user health data."""
     return engine.generate_weekly_plan(user.dict())
 
-@app.post("/process/swim")
+
+@app.post("/process/swim", tags=["AI Engine"])
 def swim_metrics(workout: WorkoutData):
+    """Process swimming workout metrics."""
     return engine.process_swim_metrics(workout.dict())
 
-@app.post("/process/strength")
+
+@app.post("/process/strength", tags=["AI Engine"])
 def strength_metrics(workout: WorkoutData):
+    """Process strength workout metrics."""
     return engine.process_strength_metrics(workout.dict())
 
-@app.post("/process/murph")
+
+@app.post("/process/murph", tags=["AI Engine"])
 def murph_metrics(workout: WorkoutData):
+    """Process Murph workout metrics."""
     return engine.process_murph(workout.dict())
-
-# Basic health endpoints (will expand later)
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-@app.get("/ready")
-def readiness():
-    db_ok = False
-    redis_ok = False
-
-    # Check database
-    try:
-        with get_db() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT 1")
-            cur.fetchone()
-            db_ok = True
-    except Exception as e:
-        is_db_error = isinstance(e, sqlite3.Error) or (psycopg2 and isinstance(e, psycopg2.Error))
-        if is_db_error:
-            log.warning("readiness_db_failed", extra={"error": str(e), "error_type": type(e).__name__})
-        else:
-            log.error("readiness_db_unexpected_error", extra={"error": str(e), "error_type": type(e).__name__})
-        db_ok = False
-
-    # Check Redis
-    try:
-        if settings.redis_enabled:
-            redis_client = get_redis()
-            if redis_client and redis_client.ping():
-                redis_ok = True
-            else:
-                log.warning("readiness_redis_failed", extra={"error": "ping_failed_or_client_none"})
-                redis_ok = False
-        else:
-            redis_ok = None  # Disabled, not an error
-    except Exception as e:
-        is_redis_error = RedisError and isinstance(e, RedisError)
-        if is_redis_error:
-            log.warning("readiness_redis_failed", extra={"error": str(e), "error_type": type(e).__name__})
-        else:
-            log.error("readiness_redis_unexpected_error", extra={"error": str(e), "error_type": type(e).__name__})
-        redis_ok = False
-
-    # Determine overall status
-    if db_ok:
-        if redis_ok is False and settings.redis_enabled:
-            status = "degraded"  # Redis expected but failed
-        else:
-            status = "ready"
-    else:
-        status = "degraded"  # Database is critical
-
-    return {
-        "status": status,
-        "environment": settings.environment,
-        "db": "ok" if db_ok else "error",
-        "redis": "ok" if redis_ok is True else ("disabled" if redis_ok is None else "error")
-    }
-
-@app.get("/metrics")
-def metrics_endpoint():
-    data, content_type = metrics.metrics_response()
-    return Response(content=data, media_type=content_type)
-
-@app.get("/cache/stats")
-def cache_stats():
-    """Get cache performance statistics."""
-    return get_cache_stats()
