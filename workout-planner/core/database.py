@@ -183,6 +183,32 @@ def init_sqlite():
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
+        CREATE TABLE IF NOT EXISTS strength_metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            date TEXT NOT NULL,
+            lift TEXT NOT NULL,
+            weight REAL NOT NULL,
+            reps INTEGER NOT NULL,
+            set_number INTEGER NOT NULL,
+            estimated_1rm REAL,
+            velocity_m_per_s REAL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, date, lift, set_number)
+        );
+
+        CREATE TABLE IF NOT EXISTS swim_metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            date TEXT NOT NULL,
+            distance_meters REAL NOT NULL,
+            duration_seconds INTEGER NOT NULL,
+            avg_pace_seconds REAL NOT NULL,
+            water_type TEXT NOT NULL,
+            stroke_rate REAL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
         -- Basic indexes
         CREATE INDEX IF NOT EXISTS idx_goal_plans_goal_id ON goal_plans(goal_id);
         CREATE INDEX IF NOT EXISTS idx_goal_plans_user_id ON goal_plans(user_id);
@@ -203,6 +229,13 @@ def init_sqlite():
         CREATE INDEX IF NOT EXISTS idx_weekly_plans_user_week ON weekly_plans(user_id, week_start);
         CREATE INDEX IF NOT EXISTS idx_chat_messages_session_created ON chat_messages(session_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_user_goals_user_active ON user_goals(user_id, is_active);
+
+        -- Strength and swim metrics indexes
+        CREATE INDEX IF NOT EXISTS idx_strength_metrics_user_id ON strength_metrics(user_id);
+        CREATE INDEX IF NOT EXISTS idx_strength_metrics_user_lift ON strength_metrics(user_id, lift);
+        CREATE INDEX IF NOT EXISTS idx_strength_metrics_user_date ON strength_metrics(user_id, date);
+        CREATE INDEX IF NOT EXISTS idx_swim_metrics_user_id ON swim_metrics(user_id);
+        CREATE INDEX IF NOT EXISTS idx_swim_metrics_user_date ON swim_metrics(user_id, date);
     """)
     # Migration: add target_unit if missing
     cur = conn.cursor()
@@ -374,6 +407,30 @@ def init_postgres():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE TABLE IF NOT EXISTS strength_metrics (
+                    id SERIAL PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    lift TEXT NOT NULL,
+                    weight REAL NOT NULL,
+                    reps INTEGER NOT NULL,
+                    set_number INTEGER NOT NULL,
+                    estimated_1rm REAL,
+                    velocity_m_per_s REAL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_id, date, lift, set_number)
+                );
+                CREATE TABLE IF NOT EXISTS swim_metrics (
+                    id SERIAL PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    distance_meters REAL NOT NULL,
+                    duration_seconds INTEGER NOT NULL,
+                    avg_pace_seconds REAL NOT NULL,
+                    water_type TEXT NOT NULL,
+                    stroke_rate REAL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
                 CREATE INDEX IF NOT EXISTS idx_goal_plans_goal_id ON goal_plans(goal_id);
                 CREATE INDEX IF NOT EXISTS idx_goal_plans_user_id ON goal_plans(user_id);
                 CREATE INDEX IF NOT EXISTS idx_weekly_plans_user_id ON weekly_plans(user_id);
@@ -386,6 +443,11 @@ def init_postgres():
                 CREATE INDEX IF NOT EXISTS idx_daily_plans_user_id ON daily_plans(user_id);
                 CREATE INDEX IF NOT EXISTS idx_workouts_user_id ON workouts(user_id);
                 CREATE INDEX IF NOT EXISTS idx_workouts_user_type ON workouts(user_id, type);
+                CREATE INDEX IF NOT EXISTS idx_strength_metrics_user_id ON strength_metrics(user_id);
+                CREATE INDEX IF NOT EXISTS idx_strength_metrics_user_lift ON strength_metrics(user_id, lift);
+                CREATE INDEX IF NOT EXISTS idx_strength_metrics_user_date ON strength_metrics(user_id, date);
+                CREATE INDEX IF NOT EXISTS idx_swim_metrics_user_id ON swim_metrics(user_id);
+                CREATE INDEX IF NOT EXISTS idx_swim_metrics_user_date ON swim_metrics(user_id, date);
             """)
             conn.commit()
             cur.close()
