@@ -43,7 +43,7 @@ from core.database import init_pg_pool, close_pg_pool
 from models.ai_engine import AIFitnessEngine
 from routers import (
     goals, health, strength, swim, murph, readiness,
-    chat, auth, weekly_plans, daily_plans, meals, waitlist, workouts
+    chat, auth, weekly_plans, daily_plans, meals, waitlist, workouts, healthcheck
 )
 
 # Get settings
@@ -78,6 +78,7 @@ app = create_app(config)
 engine = AIFitnessEngine()
 
 # Include domain-specific routers
+app.include_router(healthcheck.router)  # Health checks first
 app.include_router(auth.router)
 app.include_router(goals.router)
 app.include_router(health.router)

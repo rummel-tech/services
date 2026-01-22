@@ -57,16 +57,10 @@ class WorkoutPlannerSettings(BaseServiceSettings):
         return v
 
 
-# Cached settings getter
-_settings_instance = None
-
-
+@lru_cache()
 def get_settings() -> WorkoutPlannerSettings:
     """Get cached settings instance."""
-    global _settings_instance
-    if _settings_instance is None:
-        _settings_instance = WorkoutPlannerSettings()
-    return _settings_instance
+    return WorkoutPlannerSettings()
 
 
 def validate_settings() -> WorkoutPlannerSettings:
@@ -76,5 +70,4 @@ def validate_settings() -> WorkoutPlannerSettings:
 
 def clear_settings_cache():
     """Clear settings cache (for testing)."""
-    global _settings_instance
-    _settings_instance = None
+    get_settings.cache_clear()
