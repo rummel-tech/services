@@ -1,11 +1,3 @@
-# Core dependencies
-fastapi>=0.115.0
-uvicorn[standard]>=0.30.0
-pydantic>=2.10.0
-
-# Testing
-pytest>=8.0.0
-httpx>=0.27.0
-
-# Local common package (install with: pip install -e ../common)
-# services-common
+fastapi==0.110.0
+uvicorn[standard]==0.27.1
+pydantic==2.6.1
