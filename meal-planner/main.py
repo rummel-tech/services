@@ -1,15 +1,36 @@
-from fastapi import FastAPI
+"""
+Meal Planner API - Nutrition and meal planning service.
+
+Refactored to use database persistence for meal tracking.
+"""
+
+import sys
+from pathlib import Path
+from typing import List, Optional
+from uuid import UUID
+from datetime import date, datetime
+
+# Add common package to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, List
-from datetime import datetime, date
 
+from common.database import (
+    get_connection, get_cursor, dict_from_row,
+    init_db, close_db, adapt_query, is_sqlite, get_database_url
+)
+
+# Initialize FastAPI app
 app = FastAPI(
-    title="Meals Planner API",
-    version="0.1.0",
+    title="Meal Planner API",
+    version="2.0.0",
+    description="Nutrition and meal planning service with database persistence",
     root_path="/meal-planner"
 )
 
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,101 +39,204 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Check if using SQLite for query adaptation
+USE_SQLITE = is_sqlite(get_database_url())
+
+
+# Models
 class MealItem(BaseModel):
+    """Individual meal item."""
+    id: UUID
+    user_id: str
     name: str
+    meal_type: str  # breakfast, lunch, dinner, snack
+    date: date
     calories: Optional[int] = None
     protein_g: Optional[int] = None
     carbs_g: Optional[int] = None
     fat_g: Optional[int] = None
+    notes: Optional[str] = None
+
+
+class MealItemCreate(BaseModel):
+    """Request model for creating meals."""
+    user_id: str
+    name: str
+    meal_type: str
+    date: date
+    calories: Optional[int] = None
+    protein_g: Optional[int] = None
+    carbs_g: Optional[int] = None
+    fat_g: Optional[int] = None
+    notes: Optional[str] = None
+
 
 class DailyMeals(BaseModel):
-    day: str
+    """Daily meal summary."""
+    date: date
     meals: List[MealItem]
-
-class WeeklyMealPlan(BaseModel):
-    user_id: str
-    week_start: Optional[str] = None
-    focus: Optional[str] = "balanced"
-    days: List[DailyMeals]
-
-def _default_weekly_meal_plan(user_id: str):
-    days = [
-        {"day": "Monday", "meals": [
-            {"name": "Oats + Berries", "calories": 350},
-            {"name": "Chicken Salad", "calories": 500},
-            {"name": "Salmon + Quinoa + Greens", "calories": 600},
-        ]},
-        {"day": "Tuesday", "meals": [
-            {"name": "Greek Yogurt + Granola", "calories": 300},
-            {"name": "Turkey Wrap", "calories": 450},
-            {"name": "Stir Fry (Tofu/Veg)", "calories": 550},
-        ]},
-        {"day": "Wednesday", "meals": [
-            {"name": "Smoothie Bowl", "calories": 320},
-            {"name": "Quinoa Salad", "calories": 480},
-            {"name": "Chicken + Sweet Potato", "calories": 620},
-        ]},
-        {"day": "Thursday", "meals": [
-            {"name": "Avocado Toast + Eggs", "calories": 400},
-            {"name": "Sushi Bowl", "calories": 500},
-            {"name": "Lentil Curry + Rice", "calories": 580},
-        ]},
-        {"day": "Friday", "meals": [
-            {"name": "Protein Pancakes", "calories": 370},
-            {"name": "Grilled Chicken + Veggies", "calories": 520},
-            {"name": "Pasta with Pesto", "calories": 650},
-        ]},
-        {"day": "Saturday", "meals": [
-            {"name": "Breakfast Burrito", "calories": 450},
-            {"name": "Caesar Salad with Shrimp", "calories": 540},
-            {"name": "Homemade Pizza (Veg)", "calories": 700},
-        ]},
-        {"day": "Sunday", "meals": [
-            {"name": "French Toast", "calories": 420},
-            {"name": "Roast Beef + Potatoes", "calories": 700},
-            {"name": "Vegetable Soup + Bread", "calories": 480},
-        ]},
-    ]
-    return {"user_id": user_id, "focus": "balanced", "days": days}
+    total_calories: int
+    total_protein: int
+    total_carbs: int
+    total_fat: int
 
 
-def _day_name_from_date_str(date_str: Optional[str]) -> str:
-    if date_str:
-        try:
-            d = datetime.fromisoformat(date_str).date()
-        except Exception:
-            try:
-                d = datetime.strptime(date_str, "%Y-%m-%d").date()
-            except Exception:
-                # fallback to today if parse fails
-                d = date.today()
-    else:
-        d = date.today()
-    return d.strftime("%A")
+# Startup/shutdown events
+@app.on_event("startup")
+async def startup():
+    """Initialize database connection pool."""
+    init_db()
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    """Close database connection pool."""
+    close_db()
+
+
+# ============================================================================
+# Health Endpoints
+# ============================================================================
 
 @app.get("/health")
-async def health():
-    return {"status": "ok"}
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "healthy", "service": "meal-planner"}
+
 
 @app.get("/ready")
-async def ready():
-    return {"status": "ready"}
+async def readiness_check():
+    """Readiness check endpoint."""
+    return {"status": "ready", "database": get_database_url()}
+
+
+# ============================================================================
+# Meal Endpoints
+# ============================================================================
+
+@app.get("/meals/{user_id}", response_model=List[MealItem])
+async def list_meals(user_id: str, start_date: Optional[date] = None, end_date: Optional[date] = None):
+    """List meals for a user, optionally filtered by date range."""
+    with get_connection() as conn:
+        cur = get_cursor(conn)
+
+        if start_date and end_date:
+            query = adapt_query(
+                "SELECT * FROM meals WHERE user_id = %s AND date BETWEEN %s AND %s ORDER BY date DESC, meal_type",
+                USE_SQLITE
+            )
+            cur.execute(query, (user_id, start_date, end_date))
+        else:
+            query = adapt_query(
+                "SELECT * FROM meals WHERE user_id = %s ORDER BY date DESC, meal_type",
+                USE_SQLITE
+            )
+            cur.execute(query, (user_id,))
+
+        rows = cur.fetchall()
+        return [MealItem(**dict_from_row(row, USE_SQLITE)) for row in rows]
+
+
+@app.post("/meals", response_model=MealItem, status_code=status.HTTP_201_CREATED)
+async def create_meal(meal: MealItemCreate):
+    """Create a new meal entry."""
+    with get_connection() as conn:
+        cur = get_cursor(conn)
+
+        if USE_SQLITE:
+            import uuid
+            meal_id = str(uuid.uuid4())
+            query = """INSERT INTO meals (id, user_id, name, meal_type, date, calories, protein_g, carbs_g, fat_g, notes)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+            cur.execute(query, (
+                meal_id, meal.user_id, meal.name, meal.meal_type, meal.date,
+                meal.calories, meal.protein_g, meal.carbs_g, meal.fat_g, meal.notes
+            ))
+            cur.execute("SELECT * FROM meals WHERE id = ?", (meal_id,))
+        else:
+            query = """INSERT INTO meals (id, user_id, name, meal_type, date, calories, protein_g, carbs_g, fat_g, notes)
+                       VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       RETURNING *"""
+            cur.execute(query, (
+                meal.user_id, meal.name, meal.meal_type, meal.date,
+                meal.calories, meal.protein_g, meal.carbs_g, meal.fat_g, meal.notes
+            ))
+
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=500, detail="Failed to create meal")
+        return MealItem(**dict_from_row(row, USE_SQLITE))
+
+
+@app.get("/meals/today/{user_id}", response_model=DailyMeals)
+async def get_todays_meals(user_id: str, meal_date: Optional[date] = None):
+    """Get all meals for today (or specified date)."""
+    target_date = meal_date or date.today()
+
+    with get_connection() as conn:
+        cur = get_cursor(conn)
+        query = adapt_query(
+            "SELECT * FROM meals WHERE user_id = %s AND date = %s ORDER BY meal_type",
+            USE_SQLITE
+        )
+        cur.execute(query, (user_id, target_date))
+        rows = cur.fetchall()
+        meals = [MealItem(**dict_from_row(row, USE_SQLITE)) for row in rows]
+
+        # Calculate totals
+        total_calories = sum(m.calories or 0 for m in meals)
+        total_protein = sum(m.protein_g or 0 for m in meals)
+        total_carbs = sum(m.carbs_g or 0 for m in meals)
+        total_fat = sum(m.fat_g or 0 for m in meals)
+
+        return DailyMeals(
+            date=target_date,
+            meals=meals,
+            total_calories=total_calories,
+            total_protein=total_protein,
+            total_carbs=total_carbs,
+            total_fat=total_fat
+        )
+
 
 @app.get("/meals/weekly-plan/{user_id}")
-async def get_weekly_meal_plan(user_id: str, week_start: Optional[str] = None):
-    plan = _default_weekly_meal_plan(user_id)
-    if week_start:
-        plan["week_start"] = week_start
-    return plan
+async def get_weekly_meal_plan(user_id: str, week_start: Optional[date] = None):
+    """Get meal plan for the week."""
+    target_week = week_start or date.today()
+
+    # Get 7 days of meals
+    from datetime import timedelta
+    daily_plans = []
+
+    for day_offset in range(7):
+        day = target_week + timedelta(days=day_offset)
+        day_meals = await get_todays_meals(user_id, day)
+        daily_plans.append({
+            "day": day.strftime("%A"),
+            "date": day.isoformat(),
+            "meals": [meal.dict() for meal in day_meals.meals],
+            "total_calories": day_meals.total_calories
+        })
+
+    return {
+        "user_id": user_id,
+        "week_start": target_week.isoformat(),
+        "focus": "balanced",
+        "days": daily_plans
+    }
 
 
-@app.get("/meals/today/{user_id}")
-async def get_meal_for_today(user_id: str, date: Optional[str] = None):
-    """Return the meals for the provided date (ISO or YYYY-MM-DD). Defaults to today."""
-    day_name = _day_name_from_date_str(date)
-    plan = _default_weekly_meal_plan(user_id)
-    for d in plan.get("days", []):
-        if d.get("day") == day_name:
-            return {"user_id": user_id, "day": day_name, "meals": d.get("meals", [])}
-    # fallback: return an empty day structure
-    return {"user_id": user_id, "day": day_name, "meals": []}
+@app.delete("/meals/{user_id}/{meal_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_meal(user_id: str, meal_id: UUID):
+    """Delete a meal entry."""
+    with get_connection() as conn:
+        cur = get_cursor(conn)
+        query = adapt_query("DELETE FROM meals WHERE id = %s AND user_id = %s", USE_SQLITE)
+        cur.execute(query, (str(meal_id), user_id))
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Meal not found")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8010)

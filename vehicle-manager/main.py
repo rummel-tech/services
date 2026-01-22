@@ -1,32 +1,42 @@
-from fastapi import FastAPI
+"""
+Vehicle Manager API - Vehicle fleet management service.
+
+Refactored to use common models and database persistence.
+Supports cars, motorcycles, trucks, and other vehicles.
+"""
+
+import sys
+from pathlib import Path
+from typing import List, Optional
+from uuid import UUID
+from datetime import datetime
+
+# Add common package to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, List
-from datetime import datetime, date
-from enum import Enum
-import os
 
-
-class VehicleType(str, Enum):
-    """Vehicle type classification"""
-    car = "car"
-    motorcycle = "motorcycle"
-    truck = "truck"
-    suv = "suv"
-    van = "van"
-
-# Get the root path from environment variable (for deployment with path prefix)
-# Example: /vehicle-manager or empty string for root deployment
-ROOT_PATH = os.getenv("ROOT_PATH", "")
-
-app = FastAPI(
-    title="Vehicle Manager API",
-    version="0.1.0",
-    root_path=ROOT_PATH,
-    docs_url="/docs" if not ROOT_PATH else f"{ROOT_PATH}/docs",
-    openapi_url="/openapi.json" if not ROOT_PATH else f"{ROOT_PATH}/openapi.json"
+from common.models import (
+    Asset, MaintenanceRecord,
+    AssetCreate, AssetUpdate,
+    MaintenanceRecordCreate, MaintenanceRecordUpdate,
+    AssetCondition
+)
+from common.database import (
+    get_connection, get_cursor, dict_from_row,
+    init_db, close_db, adapt_query, is_sqlite, get_database_url
 )
 
+# Initialize FastAPI app
+app = FastAPI(
+    title="Vehicle Manager API",
+    version="2.0.0",
+    description="Vehicle fleet management service with database persistence"
+)
+
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,324 +45,309 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Models
-class Vehicle(BaseModel):
-    id: str
-    make: str
-    model: str
-    year: int
-    vehicle_type: VehicleType = VehicleType.car
-    vin: Optional[str] = None
-    license_plate: Optional[str] = None
-    current_mileage: int
-    color: Optional[str] = None
+# Check if using SQLite for query adaptation
+USE_SQLITE = is_sqlite(get_database_url())
 
-class MaintenanceRecord(BaseModel):
-    id: str
-    vehicle_id: str
-    date: str
-    # Common types: oil_change, tire_rotation, tire_replacement, brake_service, inspection, repair, air_filter
-    # Motorcycle-specific: chain_service, valve_adjustment, fork_service, coolant_flush, sprocket_replacement
-    type: str
-    mileage: int
-    cost: Optional[float] = None
-    description: Optional[str] = None
-    next_due_mileage: Optional[int] = None
-    next_due_date: Optional[str] = None
 
+# Additional models for vehicle-specific features
 class FuelRecord(BaseModel):
-    id: str
-    vehicle_id: str
-    date: str
+    """Fuel record for tracking vehicle fuel consumption."""
+    id: UUID
+    user_id: str
+    asset_id: UUID
+    date: datetime
     mileage: int
     gallons: float
     cost: float
     price_per_gallon: Optional[float] = None
-    fuel_type: Optional[str] = "regular"
+    fuel_type: str = "regular"
     mpg: Optional[float] = None
+    notes: Optional[str] = None
 
-class MaintenanceSchedule(BaseModel):
-    id: str
-    vehicle_id: str
-    service_type: str
-    interval_miles: int
-    last_service_mileage: int
-    next_due_mileage: int
-    status: str  # upcoming, due, overdue
 
-# Default data
-def _default_vehicles(user_id: str):
-    return {
-        "user_id": user_id,
-        "vehicles": [
-            {
-                "id": "v1",
-                "make": "Toyota",
-                "model": "Camry",
-                "year": 2020,
-                "vehicle_type": "car",
-                "vin": "1HGBH41JXMN109186",
-                "license_plate": "ABC-1234",
-                "current_mileage": 45000,
-                "color": "Silver"
-            },
-            {
-                "id": "v2",
-                "make": "Honda",
-                "model": "CR-V",
-                "year": 2019,
-                "vehicle_type": "suv",
-                "vin": "2HGFC2F59KH542789",
-                "license_plate": "XYZ-5678",
-                "current_mileage": 38000,
-                "color": "Blue"
-            },
-            {
-                "id": "v3",
-                "make": "Harley-Davidson",
-                "model": "Street Glide",
-                "year": 2022,
-                "vehicle_type": "motorcycle",
-                "vin": "1HD1KBP19NB123456",
-                "license_plate": "MC-9876",
-                "current_mileage": 12500,
-                "color": "Black"
-            },
-            {
-                "id": "v4",
-                "make": "Kawasaki",
-                "model": "Ninja 650",
-                "year": 2023,
-                "vehicle_type": "motorcycle",
-                "vin": "JKAEXMJ1XPDA12345",
-                "license_plate": "MC-4321",
-                "current_mileage": 5200,
-                "color": "Green"
-            }
-        ]
-    }
+class FuelRecordCreate(BaseModel):
+    """Request model for creating fuel records."""
+    user_id: str
+    asset_id: UUID
+    date: datetime
+    mileage: int
+    gallons: float
+    cost: float
+    price_per_gallon: Optional[float] = None
+    fuel_type: str = "regular"
+    notes: Optional[str] = None
 
-def _default_maintenance_records(vehicle_id: str):
-    records = [
-        {
-            "id": "m1",
-            "vehicle_id": vehicle_id,
-            "date": "2025-10-15",
-            "type": "oil_change",
-            "mileage": 42000,
-            "cost": 45.99,
-            "description": "Synthetic oil change and filter replacement",
-            "next_due_mileage": 47000,
-            "next_due_date": "2026-04-15"
-        },
-        {
-            "id": "m2",
-            "vehicle_id": vehicle_id,
-            "date": "2025-09-01",
-            "type": "tire_rotation",
-            "mileage": 40000,
-            "cost": 29.99,
-            "description": "Tire rotation and balance",
-            "next_due_mileage": 46000,
-            "next_due_date": "2026-03-01"
-        },
-        {
-            "id": "m3",
-            "vehicle_id": vehicle_id,
-            "date": "2025-08-20",
-            "type": "inspection",
-            "mileage": 39500,
-            "cost": 15.00,
-            "description": "State safety inspection",
-            "next_due_date": "2026-08-20"
-        },
-        {
-            "id": "m4",
-            "vehicle_id": vehicle_id,
-            "date": "2025-07-10",
-            "type": "brake_service",
-            "mileage": 38000,
-            "cost": 289.50,
-            "description": "Front brake pad replacement",
-            "next_due_mileage": 58000
-        },
-    ]
-    return {"vehicle_id": vehicle_id, "records": records}
 
-def _default_fuel_records(vehicle_id: str):
-    records = [
-        {
-            "id": "f1",
-            "vehicle_id": vehicle_id,
-            "date": "2025-11-18",
-            "mileage": 45000,
-            "gallons": 12.5,
-            "cost": 43.75,
-            "price_per_gallon": 3.50,
-            "fuel_type": "regular",
-            "mpg": 28.4
-        },
-        {
-            "id": "f2",
-            "vehicle_id": vehicle_id,
-            "date": "2025-11-10",
-            "mileage": 44645,
-            "gallons": 11.8,
-            "cost": 41.30,
-            "price_per_gallon": 3.50,
-            "fuel_type": "regular",
-            "mpg": 29.1
-        },
-        {
-            "id": "f3",
-            "vehicle_id": vehicle_id,
-            "date": "2025-11-03",
-            "mileage": 44302,
-            "gallons": 12.2,
-            "cost": 42.70,
-            "price_per_gallon": 3.50,
-            "fuel_type": "regular",
-            "mpg": 28.8
-        },
-    ]
-    return {"vehicle_id": vehicle_id, "records": records}
+# Startup/shutdown events
+@app.on_event("startup")
+async def startup():
+    """Initialize database connection pool."""
+    init_db()
 
-def _maintenance_schedule(vehicle_id: str, current_mileage: int):
-    schedules = [
-        {
-            "id": "s1",
-            "vehicle_id": vehicle_id,
-            "service_type": "Oil Change",
-            "interval_miles": 5000,
-            "last_service_mileage": 42000,
-            "next_due_mileage": 47000,
-            "status": "upcoming" if current_mileage < 46000 else "due" if current_mileage < 47500 else "overdue"
-        },
-        {
-            "id": "s2",
-            "vehicle_id": vehicle_id,
-            "service_type": "Tire Rotation",
-            "interval_miles": 6000,
-            "last_service_mileage": 40000,
-            "next_due_mileage": 46000,
-            "status": "upcoming" if current_mileage < 45000 else "due" if current_mileage < 46500 else "overdue"
-        },
-        {
-            "id": "s3",
-            "vehicle_id": vehicle_id,
-            "service_type": "Air Filter",
-            "interval_miles": 15000,
-            "last_service_mileage": 30000,
-            "next_due_mileage": 45000,
-            "status": "due"
-        },
-    ]
-    return {"vehicle_id": vehicle_id, "current_mileage": current_mileage, "schedules": schedules}
 
-def _calculate_stats(vehicle_id: str):
-    fuel = _default_fuel_records(vehicle_id)
-    maintenance = _default_maintenance_records(vehicle_id)
+@app.on_event("shutdown")
+async def shutdown():
+    """Close database connection pool."""
+    close_db()
 
-    total_fuel_cost = sum(r.get("cost", 0) for r in fuel["records"])
-    total_gallons = sum(r.get("gallons", 0) for r in fuel["records"])
-    avg_mpg = sum(r.get("mpg", 0) for r in fuel["records"]) / len(fuel["records"]) if fuel["records"] else 0
-    total_maintenance_cost = sum(r.get("cost", 0) for r in maintenance["records"])
 
-    return {
-        "vehicle_id": vehicle_id,
-        "fuel": {
-            "total_cost": round(total_fuel_cost, 2),
-            "total_gallons": round(total_gallons, 2),
-            "average_mpg": round(avg_mpg, 1),
-            "fill_ups": len(fuel["records"])
-        },
-        "maintenance": {
-            "total_cost": round(total_maintenance_cost, 2),
-            "services": len(maintenance["records"]),
-            "last_service_date": maintenance["records"][0]["date"] if maintenance["records"] else None
-        }
-    }
+# ============================================================================
+# Health Endpoints
+# ============================================================================
 
-# Endpoints
 @app.get("/health")
-async def health():
-    return {"status": "ok"}
+async def health_check():
+    """Health check endpoint."""
+    return {"status": "healthy", "service": "vehicle-manager"}
+
 
 @app.get("/ready")
-async def ready():
-    return {"status": "ready"}
+async def readiness_check():
+    """Readiness check endpoint."""
+    return {"status": "ready", "database": get_database_url()}
 
-@app.get("/vehicles/{user_id}")
-async def get_vehicles(user_id: str):
-    """Get all vehicles for user"""
-    return _default_vehicles(user_id)
 
-@app.get("/vehicles/{user_id}/{vehicle_id}")
-async def get_vehicle(user_id: str, vehicle_id: str):
-    """Get specific vehicle details"""
-    vehicles = _default_vehicles(user_id)
-    for vehicle in vehicles["vehicles"]:
-        if vehicle["id"] == vehicle_id:
-            return vehicle
-    return {"error": "Vehicle not found"}
+# ============================================================================
+# Vehicle Endpoints (using common Asset model)
+# ============================================================================
 
-@app.get("/maintenance/{vehicle_id}")
-async def get_maintenance_records(vehicle_id: str):
-    """Get all maintenance records for vehicle"""
-    return _default_maintenance_records(vehicle_id)
+@app.get("/vehicles/{user_id}", response_model=List[Asset])
+async def list_vehicles(user_id: str):
+    """List all vehicles for a user."""
+    with get_connection() as conn:
+        cur = get_cursor(conn)
+        query = adapt_query(
+            "SELECT * FROM assets WHERE user_id = %s AND asset_type = 'vehicle' ORDER BY created_at DESC",
+            USE_SQLITE
+        )
+        cur.execute(query, (user_id,))
+        rows = cur.fetchall()
+        return [Asset(**dict_from_row(row, USE_SQLITE)) for row in rows]
 
-@app.get("/maintenance/{vehicle_id}/type/{service_type}")
-async def get_maintenance_by_type(vehicle_id: str, service_type: str):
-    """Get maintenance records by type"""
-    all_records = _default_maintenance_records(vehicle_id)
-    filtered = [r for r in all_records["records"] if r["type"] == service_type]
-    return {"vehicle_id": vehicle_id, "type": service_type, "records": filtered}
 
-@app.get("/fuel/{vehicle_id}")
-async def get_fuel_records(vehicle_id: str, limit: Optional[int] = None):
-    """Get fuel records for vehicle"""
-    records = _default_fuel_records(vehicle_id)
-    if limit:
-        records["records"] = records["records"][:limit]
-    return records
+@app.post("/vehicles", response_model=Asset, status_code=status.HTTP_201_CREATED)
+async def create_vehicle(vehicle: AssetCreate):
+    """Create a new vehicle."""
+    # Force asset_type to 'vehicle'
+    vehicle.asset_type = "vehicle"
 
-@app.get("/schedule/{vehicle_id}")
-async def get_maintenance_schedule(vehicle_id: str):
-    """Get maintenance schedule for vehicle"""
-    # Get current mileage from vehicles
-    vehicles = _default_vehicles("user-123")
-    current_mileage = 45000
-    for v in vehicles["vehicles"]:
-        if v["id"] == vehicle_id:
-            current_mileage = v["current_mileage"]
-            break
+    with get_connection() as conn:
+        cur = get_cursor(conn)
 
-    return _maintenance_schedule(vehicle_id, current_mileage)
+        if USE_SQLITE:
+            import uuid
+            vehicle_id = str(uuid.uuid4())
+            query = """INSERT INTO assets (id, user_id, name, description, asset_type, category,
+                                           manufacturer, model_number, serial_number, vin,
+                                           purchase_date, purchase_price, condition, location, notes, context)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+            cur.execute(query, (
+                vehicle_id, vehicle.user_id, vehicle.name, vehicle.description, vehicle.asset_type,
+                vehicle.category, vehicle.manufacturer, vehicle.model_number, vehicle.serial_number,
+                vehicle.vin, vehicle.purchase_date, vehicle.purchase_price, vehicle.condition.value,
+                vehicle.location, vehicle.notes, str(vehicle.context)
+            ))
+            cur.execute("SELECT * FROM assets WHERE id = ?", (vehicle_id,))
+        else:
+            query = """INSERT INTO assets (id, user_id, name, description, asset_type, category,
+                                           manufacturer, model_number, serial_number, vin,
+                                           purchase_date, purchase_price, condition, location, notes, context)
+                       VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       RETURNING *"""
+            cur.execute(query, (
+                vehicle.user_id, vehicle.name, vehicle.description, vehicle.asset_type,
+                vehicle.category, vehicle.manufacturer, vehicle.model_number, vehicle.serial_number,
+                vehicle.vin, vehicle.purchase_date, vehicle.purchase_price, vehicle.condition.value,
+                vehicle.location, vehicle.notes, vehicle.context
+            ))
+
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=500, detail="Failed to create vehicle")
+        return Asset(**dict_from_row(row, USE_SQLITE))
+
+
+@app.get("/vehicles/{user_id}/{vehicle_id}", response_model=Asset)
+async def get_vehicle(user_id: str, vehicle_id: UUID):
+    """Get a specific vehicle."""
+    with get_connection() as conn:
+        cur = get_cursor(conn)
+        query = adapt_query(
+            "SELECT * FROM assets WHERE id = %s AND user_id = %s AND asset_type = 'vehicle'",
+            USE_SQLITE
+        )
+        cur.execute(query, (str(vehicle_id), user_id))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Vehicle not found")
+        return Asset(**dict_from_row(row, USE_SQLITE))
+
+
+# ============================================================================
+# Maintenance Endpoints (using common MaintenanceRecord model)
+# ============================================================================
+
+@app.get("/maintenance/{vehicle_id}", response_model=List[MaintenanceRecord])
+async def list_maintenance(vehicle_id: UUID):
+    """List all maintenance records for a vehicle."""
+    with get_connection() as conn:
+        cur = get_cursor(conn)
+        query = adapt_query(
+            "SELECT * FROM maintenance_records WHERE asset_id = %s ORDER BY date DESC",
+            USE_SQLITE
+        )
+        cur.execute(query, (str(vehicle_id),))
+        rows = cur.fetchall()
+        return [MaintenanceRecord(**dict_from_row(row, USE_SQLITE)) for row in rows]
+
+
+@app.post("/maintenance", response_model=MaintenanceRecord, status_code=status.HTTP_201_CREATED)
+async def create_maintenance(maintenance: MaintenanceRecordCreate):
+    """Create a new maintenance record."""
+    with get_connection() as conn:
+        cur = get_cursor(conn)
+
+        if USE_SQLITE:
+            import uuid
+            record_id = str(uuid.uuid4())
+            query = """INSERT INTO maintenance_records (id, user_id, asset_id, maintenance_type, date,
+                                                        cost, description, performed_by, next_due_date,
+                                                        next_due_mileage, notes, context)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+            cur.execute(query, (
+                record_id, maintenance.user_id, str(maintenance.asset_id), maintenance.maintenance_type,
+                maintenance.date, maintenance.cost, maintenance.description, maintenance.performed_by,
+                maintenance.next_due_date, maintenance.next_due_mileage, maintenance.notes, str(maintenance.context)
+            ))
+            cur.execute("SELECT * FROM maintenance_records WHERE id = ?", (record_id,))
+        else:
+            query = """INSERT INTO maintenance_records (id, user_id, asset_id, maintenance_type, date,
+                                                        cost, description, performed_by, next_due_date,
+                                                        next_due_mileage, notes, context)
+                       VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       RETURNING *"""
+            cur.execute(query, (
+                maintenance.user_id, maintenance.asset_id, maintenance.maintenance_type,
+                maintenance.date, maintenance.cost, maintenance.description, maintenance.performed_by,
+                maintenance.next_due_date, maintenance.next_due_mileage, maintenance.notes, maintenance.context
+            ))
+
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=500, detail="Failed to create maintenance record")
+        return MaintenanceRecord(**dict_from_row(row, USE_SQLITE))
+
+
+# ============================================================================
+# Fuel Record Endpoints
+# ============================================================================
+
+@app.get("/fuel/{vehicle_id}", response_model=List[FuelRecord])
+async def list_fuel_records(vehicle_id: UUID, limit: Optional[int] = None):
+    """List fuel records for a vehicle."""
+    with get_connection() as conn:
+        cur = get_cursor(conn)
+
+        if limit:
+            query = adapt_query(
+                "SELECT * FROM fuel_records WHERE asset_id = %s ORDER BY date DESC LIMIT %s",
+                USE_SQLITE
+            )
+            cur.execute(query, (str(vehicle_id), limit))
+        else:
+            query = adapt_query(
+                "SELECT * FROM fuel_records WHERE asset_id = %s ORDER BY date DESC",
+                USE_SQLITE
+            )
+            cur.execute(query, (str(vehicle_id),))
+
+        rows = cur.fetchall()
+        return [FuelRecord(**dict_from_row(row, USE_SQLITE)) for row in rows]
+
+
+@app.post("/fuel", response_model=FuelRecord, status_code=status.HTTP_201_CREATED)
+async def create_fuel_record(fuel: FuelRecordCreate):
+    """Create a new fuel record."""
+    # Calculate MPG if not provided
+    mpg = None
+    if fuel.price_per_gallon is None and fuel.gallons > 0:
+        fuel.price_per_gallon = fuel.cost / fuel.gallons
+
+    with get_connection() as conn:
+        cur = get_cursor(conn)
+
+        if USE_SQLITE:
+            import uuid
+            record_id = str(uuid.uuid4())
+            query = """INSERT INTO fuel_records (id, user_id, asset_id, date, mileage, gallons, cost,
+                                                 price_per_gallon, fuel_type, mpg, notes)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+            cur.execute(query, (
+                record_id, fuel.user_id, str(fuel.asset_id), fuel.date, fuel.mileage,
+                fuel.gallons, fuel.cost, fuel.price_per_gallon, fuel.fuel_type, mpg, fuel.notes
+            ))
+            cur.execute("SELECT * FROM fuel_records WHERE id = ?", (record_id,))
+        else:
+            query = """INSERT INTO fuel_records (id, user_id, asset_id, date, mileage, gallons, cost,
+                                                 price_per_gallon, fuel_type, mpg, notes)
+                       VALUES (gen_random_uuid(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       RETURNING *"""
+            cur.execute(query, (
+                fuel.user_id, fuel.asset_id, fuel.date, fuel.mileage,
+                fuel.gallons, fuel.cost, fuel.price_per_gallon, fuel.fuel_type, mpg, fuel.notes
+            ))
+
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=500, detail="Failed to create fuel record")
+        return FuelRecord(**dict_from_row(row, USE_SQLITE))
+
+
+# ============================================================================
+# Statistics Endpoints
+# ============================================================================
 
 @app.get("/stats/{vehicle_id}")
-async def get_vehicle_stats(vehicle_id: str):
-    """Get statistics for vehicle"""
-    return _calculate_stats(vehicle_id)
+async def get_vehicle_stats(vehicle_id: UUID):
+    """Get statistics for a vehicle."""
+    with get_connection() as conn:
+        cur = get_cursor(conn)
 
-@app.get("/summary/{user_id}")
-async def get_user_summary(user_id: str):
-    """Get summary for all user vehicles"""
-    vehicles = _default_vehicles(user_id)
-    total_vehicles = len(vehicles["vehicles"])
+        # Fuel stats
+        query = adapt_query(
+            """SELECT COUNT(*) as fill_ups, SUM(cost) as total_cost, SUM(gallons) as total_gallons,
+                      AVG(mpg) as avg_mpg
+               FROM fuel_records WHERE asset_id = %s""",
+            USE_SQLITE
+        )
+        cur.execute(query, (str(vehicle_id),))
+        fuel_stats = dict_from_row(cur.fetchone(), USE_SQLITE)
 
-    # Calculate total costs across all vehicles
-    total_fuel_cost = 0
-    total_maintenance_cost = 0
+        # Maintenance stats
+        query = adapt_query(
+            """SELECT COUNT(*) as services, SUM(cost) as total_cost, MAX(date) as last_service
+               FROM maintenance_records WHERE asset_id = %s""",
+            USE_SQLITE
+        )
+        cur.execute(query, (str(vehicle_id),))
+        maint_stats = dict_from_row(cur.fetchone(), USE_SQLITE)
 
-    for vehicle in vehicles["vehicles"]:
-        stats = _calculate_stats(vehicle["id"])
-        total_fuel_cost += stats["fuel"]["total_cost"]
-        total_maintenance_cost += stats["maintenance"]["total_cost"]
+        return {
+            "vehicle_id": str(vehicle_id),
+            "fuel": {
+                "total_cost": fuel_stats.get("total_cost") or 0,
+                "total_gallons": fuel_stats.get("total_gallons") or 0,
+                "average_mpg": fuel_stats.get("avg_mpg") or 0,
+                "fill_ups": fuel_stats.get("fill_ups") or 0,
+            },
+            "maintenance": {
+                "total_cost": maint_stats.get("total_cost") or 0,
+                "services": maint_stats.get("services") or 0,
+                "last_service_date": maint_stats.get("last_service"),
+            }
+        }
 
-    return {
-        "user_id": user_id,
-        "total_vehicles": total_vehicles,
-        "total_fuel_cost": round(total_fuel_cost, 2),
-        "total_maintenance_cost": round(total_maintenance_cost, 2),
-        "total_cost": round(total_fuel_cost + total_maintenance_cost, 2)
-    }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8030)
