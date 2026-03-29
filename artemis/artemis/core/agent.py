@@ -15,15 +15,26 @@ from artemis.core.settings import get_settings
 
 log = logging.getLogger("artemis.agent")
 
-SYSTEM_PROMPT = """You are Artemis, a personal AI assistant that helps manage your life across multiple domains: fitness, nutrition, home, vehicles, work, finance, and more.
+SYSTEM_PROMPT = """You are Artemis — a personal AI assistant and platform manager.
 
-You have access to tools from multiple personal management modules. Use them to answer questions, take actions, and provide insights. Always be concise and helpful.
+## Personal Life Management
+You help manage daily life through connected modules:
+- **workout-planner** — fitness tracking, workout scheduling, readiness scores
+- **meal-planner** — nutrition logging, meal tracking, calorie and macro goals
+- **home-manager** — household tasks, assets, maintenance scheduling
+- **vehicle-manager** — vehicle fleet, fuel logs, maintenance records
 
-When you need information from a module, call the appropriate tool. Combine data from multiple modules when relevant (e.g., correlate workout intensity with nutrition).
+Combine data across modules when relevant — e.g. correlate workout intensity with nutrition, or flag overdue maintenance alongside upcoming tasks.
 
-Today's date: {today}
-User: {user_name}
-Enabled modules: {modules}
+## Platform Self-Management
+You also manage the ongoing development of the Artemis platform itself. Use platform tools to:
+- Check open bugs and feature requests across all repositories
+- Create GitHub issues to track anything worth fixing or building
+- Check and trigger deployments to staging or production
+
+When a user mentions a limitation, bug, or improvement idea — even casually — offer to create a GitHub issue to track it.
+
+Today: {today} | User: {user_name} | Modules: {modules}
 """
 
 
@@ -77,6 +88,41 @@ async def _call_module_tool(
         return {"error": str(e)}
 
 
+async def _call_platform_tool(
+    tool_name: str,
+    tool_input: Dict[str, Any],
+    dev_tools: Any,
+) -> Dict[str, Any]:
+    """Execute a platform__ tool locally via DevTools."""
+    if dev_tools is None:
+        return {"error": "Platform tools not configured — set GITHUB_TOKEN."}
+
+    op = tool_name.removeprefix("platform__")
+
+    if op == "list_issues":
+        return await dev_tools.list_issues(
+            repo=tool_input.get("repo", "services"),
+            state=tool_input.get("state", "open"),
+        )
+    if op == "create_issue":
+        return await dev_tools.create_issue(
+            repo=tool_input.get("repo", "services"),
+            title=tool_input["title"],
+            body=tool_input["body"],
+            labels=tool_input.get("labels"),
+        )
+    if op == "deployment_status":
+        return await dev_tools.get_deployment_status(
+            service=tool_input.get("service", "artemis"),
+        )
+    if op == "trigger_deployment":
+        return await dev_tools.trigger_deployment(
+            service=tool_input["service"],
+            environment=tool_input.get("environment", "staging"),
+        )
+    return {"error": f"Unknown platform tool: {op}"}
+
+
 async def run_agent(
     user_message: str,
     token_payload: dict,
@@ -95,7 +141,16 @@ async def run_agent(
         }
 
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    tools = registry.build_claude_tools()
+    user_modules = set(token_payload.get("modules") or [])
+    tools = registry.build_claude_tools(allowed_modules=user_modules)
+
+    # Platform self-management tools
+    dev_tools = None
+    if settings.github_token:
+        from artemis.core.dev_tools import DevTools, build_platform_tools
+        dev_tools = DevTools(settings.github_token, settings.github_org)
+        tools = tools + build_platform_tools()
+
     system = _build_system_prompt(token_payload)
 
     messages: List[Dict] = list(conversation_history or [])
@@ -132,22 +187,26 @@ async def run_agent(
             if block.type != "tool_use":
                 continue
 
-            resolved = registry.resolve_tool(block.name)
-            if not resolved:
-                result = {"error": f"Unknown tool: {block.name}"}
+            if block.name.startswith("platform__"):
+                result = await _call_platform_tool(block.name, block.input, dev_tools)
             else:
-                module, tool_id = resolved
-                result = await _call_module_tool(
-                    module_id=module.id,
-                    tool_id=tool_id,
-                    tool_input=block.input,
-                    token=token,
-                )
-                tool_calls_made.append({
-                    "tool": block.name,
-                    "input": block.input,
-                    "result": result,
-                })
+                resolved = registry.resolve_tool(block.name)
+                if not resolved:
+                    result = {"error": f"Unknown tool: {block.name}"}
+                else:
+                    module, tool_id = resolved
+                    result = await _call_module_tool(
+                        module_id=module.id,
+                        tool_id=tool_id,
+                        tool_input=block.input,
+                        token=token,
+                    )
+
+            tool_calls_made.append({
+                "tool": block.name,
+                "input": block.input,
+                "result": result,
+            })
 
             tool_results.append({
                 "type": "tool_result",

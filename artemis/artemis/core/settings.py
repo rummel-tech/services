@@ -34,11 +34,16 @@ class ArtemisSettings(BaseSettings):
     anthropic_api_key: str = ""
     agent_model: str = "claude-sonnet-4-6"
 
+    # GitHub integration for platform self-management
+    github_token: str = ""
+    github_org: str = "rummel-tech"
+
     cors_origins: Union[List[str], str] = [
         "http://localhost:3000",
         "http://localhost:8080",
         "http://localhost:8081",
         "http://127.0.0.1:8080",
+        "https://rummel-tech.github.io",
     ]
 
 

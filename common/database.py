@@ -135,7 +135,7 @@ def get_connection(database_url: Optional[str] = None):
         conn = _pg_pool.getconn()
         try:
             yield conn
-            conn.commit()
+            conn.commit()  # auto-commit on clean exit; explicit conn.commit() in callers is a no-op
         except Exception:
             conn.rollback()
             raise
@@ -149,7 +149,7 @@ def get_connection(database_url: Optional[str] = None):
         conn.row_factory = sqlite3.Row
         try:
             yield conn
-            conn.commit()
+            conn.commit()  # auto-commit on clean exit; explicit conn.commit() in callers is a no-op
         except Exception:
             conn.rollback()
             raise
@@ -201,25 +201,14 @@ def adapt_query(query: str, use_sqlite: bool = False) -> str:
 
 
 def dict_from_row(row, use_sqlite: bool = False) -> Optional[Dict[str, Any]]:
-    """
-    Convert database row to dictionary.
+    """Convert a database row (sqlite3.Row or psycopg2.RealDictRow) to a plain dict.
 
-    Args:
-        row: Database row
-        use_sqlite: Whether row is from SQLite
-
-    Returns:
-        Dictionary representation of row
+    The use_sqlite parameter is accepted but not needed — dict(row) works for both
+    SQLite and PostgreSQL row types. Kept for backward compatibility with call sites.
     """
     if row is None:
         return None
-
-    if use_sqlite:
-        # SQLite Row object
-        return dict(row)
-    else:
-        # PostgreSQL RealDictRow
-        return dict(row)
+    return dict(row)
 
 
 class DatabaseManager:

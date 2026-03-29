@@ -378,9 +378,9 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8030"]
 
 | Priority | Feature | Notes |
 |----------|---------|-------|
-| High | Standalone JWT auth (§6) | Required before any public exposure |
-| High | Auto-compute MPG on fuel insert | Requires fetching previous mileage from last fuel record |
-| High | Fix `context` JSON bug on vehicle create | See §12 — causes `POST /vehicles` to fail in SQLite mode |
+| ~~High~~ | ~~Standalone JWT auth (§6)~~ | ✅ Done |
+| ~~High~~ | ~~Auto-compute MPG on fuel insert~~ | ✅ Done |
+| ~~High~~ | ~~Fix `context` JSON bug on vehicle create~~ | ✅ Done |
 | Medium | Mileage-based maintenance reminders | Alert when `next_due_mileage` < current_mileage + 500 |
 | Medium | Date-based maintenance reminders | Alert when `next_due_date` is within 14 days |
 | Medium | Lifetime cost summary | Total fuel + maintenance cost per vehicle |
@@ -393,38 +393,16 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8030"]
 
 | Priority | Feature | Notes |
 |----------|---------|-------|
-| High | `GET /artemis/summary` | "2 vehicles in fleet. Oil change on F-150 overdue by 500 miles." |
-| High | `GET /artemis/calendar` | Upcoming maintenance dates as calendar events |
-| Medium | `provides_data: maintenance_schedule` | Specific upcoming services for Artemis calendar |
-| Medium | `provides_data: vehicle_summary` | Fleet overview for Artemis agent |
+| ✅ Done | `GET /artemis/summary` | Natural language fleet briefing |
+| ✅ Done | `GET /artemis/calendar` | Upcoming maintenance as calendar events |
+| Medium | `provides_data: maintenance_schedule` | Structured upcoming services for Artemis calendar |
 | Medium | `update_mileage` agent tool | Let AI agent update current odometer reading |
 | Low | `GET /artemis/notifications` | Alert when a maintenance item is overdue |
 | Low | Date-range fuel cost queries | `/artemis/data/fuel_costs?start=&end=` |
 
-### Schema Evolutions Needed
+### Schema Evolution (Future)
 
-MPG auto-calculation trigger (PostgreSQL):
-```sql
--- Computed on fuel insert via application logic (not a trigger):
--- SELECT MAX(mileage) FROM fuel_records WHERE asset_id = $1 AND mileage < $current
--- mpg = ($current_mileage - $previous_mileage) / $gallons
-```
-
-Maintenance schedule table (for interval-based reminders):
-```sql
-CREATE TABLE maintenance_schedules (
-    id UUID PRIMARY KEY,
-    asset_id UUID REFERENCES assets(id) ON DELETE CASCADE,
-    service_type VARCHAR(100) NOT NULL,
-    interval_miles INTEGER,        -- e.g. 5000 for oil change
-    interval_months INTEGER,       -- e.g. 6 for semi-annual
-    last_service_mileage INTEGER,
-    last_service_date DATE,
-    next_due_mileage INTEGER,
-    next_due_date DATE,
-    created_at TIMESTAMP DEFAULT NOW()
-);
-```
+A `maintenance_schedules` table for interval-based reminders (e.g. "every 5000 miles") would complement the current `maintenance_records` log. Columns: `asset_id`, `service_type`, `interval_miles`, `interval_months`, `next_due_mileage`, `next_due_date`.
 
 ---
 
@@ -450,9 +428,9 @@ Vehicle Manager has no mandatory cross-module data dependencies. Future option:
 
 | Issue | Severity | Notes |
 |-------|----------|-------|
-| No standalone auth | High | All endpoints unauthenticated |
-| `context` stored as string, not JSON, in SQLite | High | `str(vehicle.context)` on insert. `POST /vehicles` crashes on response serialisation because Pydantic expects `dict`. Fix: `json.dumps(context)` on insert, `json.loads(context)` on read |
-| `mpg` field never written on fuel insert | Medium | `agent_get_vehicle_stats` always returns `avg_mpg: 0` until this is fixed |
+| ~~No standalone auth~~ | ~~High~~ | ✅ Fixed — `require_token` added to all endpoints |
+| ~~`context` stored as string, not JSON, in SQLite~~ | ~~High~~ | ✅ Fixed — `json.dumps` on insert, `json.loads` on read |
+| ~~`mpg` field never written on fuel insert~~ | ~~Medium~~ | ✅ Fixed — MPG computed from previous mileage record on insert |
 | Artemis data endpoints return all-time totals only | Medium | No date-range filtering; callers can't get monthly breakdowns |
 | `migrate_db.py` uses PostgreSQL syntax | Medium | Can't run against SQLite — tests create schema inline as a workaround |
 | `fuel_records.date` stores ISO timestamp, not just date | Low | Queries that group by day need `DATE(date)` in PostgreSQL |

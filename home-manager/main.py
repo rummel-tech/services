@@ -4,6 +4,7 @@ Home Manager API - Property and household management service.
 Refactored to use common models and database persistence.
 """
 
+import json
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -12,7 +13,7 @@ from uuid import UUID
 # Add common package to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -28,6 +29,7 @@ from common.database import (
     init_db, close_db, adapt_query, is_sqlite, get_database_url
 )
 from routers import artemis as artemis_router
+from routers.auth import TokenData, require_token
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -49,6 +51,17 @@ app.include_router(artemis_router.router)
 
 # Check if using SQLite for query adaptation
 USE_SQLITE = is_sqlite(get_database_url())
+
+
+def _parse_row(row_dict: dict) -> dict:
+    """Parse JSON string fields from SQLite rows before Pydantic model construction."""
+    if USE_SQLITE and isinstance(row_dict.get("context"), str):
+        try:
+            row_dict["context"] = json.loads(row_dict["context"])
+        except (json.JSONDecodeError, ValueError):
+            row_dict["context"] = {}
+    return row_dict
+
 
 
 # Startup/shutdown events
@@ -85,18 +98,18 @@ async def readiness_check():
 # ============================================================================
 
 @app.get("/tasks/{user_id}", response_model=List[Task])
-async def list_tasks(user_id: str):
+async def list_tasks(user_id: str, token: TokenData = Depends(require_token)):
     """List all tasks for a user."""
     with get_connection() as conn:
         cur = get_cursor(conn)
         query = adapt_query("SELECT * FROM tasks WHERE user_id = %s ORDER BY created_at DESC", USE_SQLITE)
         cur.execute(query, (user_id,))
         rows = cur.fetchall()
-        return [Task(**dict_from_row(row, USE_SQLITE)) for row in rows]
+        return [Task(**_parse_row(dict_from_row(row, USE_SQLITE))) for row in rows]
 
 
 @app.post("/tasks", response_model=Task, status_code=status.HTTP_201_CREATED)
-async def create_task(task: TaskCreate):
+async def create_task(task: TaskCreate, token: TokenData = Depends(require_token)):
     """Create a new task."""
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -117,7 +130,7 @@ async def create_task(task: TaskCreate):
             cur.execute(query, (
                 task_id, task.user_id, task.title, task.description, task.status.value,
                 task.priority.value, task.category, task.due_date, task.estimated_minutes,
-                str(task.tags), str(task.context)
+                json.dumps(task.tags or []), json.dumps(task.context or {})
             ))
             cur.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
         else:
@@ -130,11 +143,11 @@ async def create_task(task: TaskCreate):
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=500, detail="Failed to create task")
-        return Task(**dict_from_row(row, USE_SQLITE))
+        return Task(**_parse_row(dict_from_row(row, USE_SQLITE)))
 
 
 @app.get("/tasks/{user_id}/{task_id}", response_model=Task)
-async def get_task(user_id: str, task_id: UUID):
+async def get_task(user_id: str, task_id: UUID, token: TokenData = Depends(require_token)):
     """Get a specific task."""
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -143,11 +156,11 @@ async def get_task(user_id: str, task_id: UUID):
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Task not found")
-        return Task(**dict_from_row(row, USE_SQLITE))
+        return Task(**_parse_row(dict_from_row(row, USE_SQLITE)))
 
 
 @app.put("/tasks/{user_id}/{task_id}", response_model=Task)
-async def update_task(user_id: str, task_id: UUID, task_update: TaskUpdate):
+async def update_task(user_id: str, task_id: UUID, task_update: TaskUpdate, token: TokenData = Depends(require_token)):
     """Update a task."""
     updates = {k: v for k, v in task_update.dict().items() if v is not None}
     if not updates:
@@ -177,11 +190,11 @@ async def update_task(user_id: str, task_id: UUID, task_update: TaskUpdate):
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Task not found")
-        return Task(**dict_from_row(row, USE_SQLITE))
+        return Task(**_parse_row(dict_from_row(row, USE_SQLITE)))
 
 
 @app.delete("/tasks/{user_id}/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_task(user_id: str, task_id: UUID):
+async def delete_task(user_id: str, task_id: UUID, token: TokenData = Depends(require_token)):
     """Delete a task."""
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -196,18 +209,18 @@ async def delete_task(user_id: str, task_id: UUID):
 # ============================================================================
 
 @app.get("/goals/{user_id}", response_model=List[Goal])
-async def list_goals(user_id: str):
+async def list_goals(user_id: str, token: TokenData = Depends(require_token)):
     """List all goals for a user."""
     with get_connection() as conn:
         cur = get_cursor(conn)
         query = adapt_query("SELECT * FROM goals WHERE user_id = %s ORDER BY created_at DESC", USE_SQLITE)
         cur.execute(query, (user_id,))
         rows = cur.fetchall()
-        return [Goal(**dict_from_row(row, USE_SQLITE)) for row in rows]
+        return [Goal(**_parse_row(dict_from_row(row, USE_SQLITE))) for row in rows]
 
 
 @app.post("/goals", response_model=Goal, status_code=status.HTTP_201_CREATED)
-async def create_goal(goal: GoalCreate):
+async def create_goal(goal: GoalCreate, token: TokenData = Depends(require_token)):
     """Create a new goal."""
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -220,7 +233,7 @@ async def create_goal(goal: GoalCreate):
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
             cur.execute(query, (
                 goal_id, goal.user_id, goal.title, goal.description, goal.category,
-                goal.target_value, goal.target_unit, goal.target_date, goal.notes, str(goal.context)
+                goal.target_value, goal.target_unit, goal.target_date, goal.notes, json.dumps(goal.context or {})
             ))
             cur.execute("SELECT * FROM goals WHERE id = ?", (goal_id,))
         else:
@@ -236,11 +249,11 @@ async def create_goal(goal: GoalCreate):
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=500, detail="Failed to create goal")
-        return Goal(**dict_from_row(row, USE_SQLITE))
+        return Goal(**_parse_row(dict_from_row(row, USE_SQLITE)))
 
 
 @app.get("/goals/{user_id}/{goal_id}", response_model=Goal)
-async def get_goal(user_id: str, goal_id: UUID):
+async def get_goal(user_id: str, goal_id: UUID, token: TokenData = Depends(require_token)):
     """Get a specific goal."""
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -249,7 +262,7 @@ async def get_goal(user_id: str, goal_id: UUID):
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Goal not found")
-        return Goal(**dict_from_row(row, USE_SQLITE))
+        return Goal(**_parse_row(dict_from_row(row, USE_SQLITE)))
 
 
 # ============================================================================
@@ -257,7 +270,7 @@ async def get_goal(user_id: str, goal_id: UUID):
 # ============================================================================
 
 @app.get("/assets/{user_id}", response_model=List[Asset])
-async def list_assets(user_id: str, asset_type: Optional[str] = None):
+async def list_assets(user_id: str, asset_type: Optional[str] = None, token: TokenData = Depends(require_token)):
     """List all assets for a user, optionally filtered by type."""
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -268,11 +281,11 @@ async def list_assets(user_id: str, asset_type: Optional[str] = None):
             query = adapt_query("SELECT * FROM assets WHERE user_id = %s ORDER BY created_at DESC", USE_SQLITE)
             cur.execute(query, (user_id,))
         rows = cur.fetchall()
-        return [Asset(**dict_from_row(row, USE_SQLITE)) for row in rows]
+        return [Asset(**_parse_row(dict_from_row(row, USE_SQLITE))) for row in rows]
 
 
 @app.post("/assets", response_model=Asset, status_code=status.HTTP_201_CREATED)
-async def create_asset(asset: AssetCreate):
+async def create_asset(asset: AssetCreate, token: TokenData = Depends(require_token)):
     """Create a new asset."""
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -288,7 +301,7 @@ async def create_asset(asset: AssetCreate):
                 asset_id, asset.user_id, asset.name, asset.description, asset.asset_type,
                 asset.category, asset.manufacturer, asset.model_number, asset.serial_number,
                 asset.purchase_date, asset.purchase_price, asset.condition.value,
-                asset.location, asset.notes, str(asset.context)
+                asset.location, asset.notes, json.dumps(asset.context or {})
             ))
             cur.execute("SELECT * FROM assets WHERE id = ?", (asset_id,))
         else:
@@ -307,28 +320,8 @@ async def create_asset(asset: AssetCreate):
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=500, detail="Failed to create asset")
-        return Asset(**dict_from_row(row, USE_SQLITE))
+        return Asset(**_parse_row(dict_from_row(row, USE_SQLITE)))
 
-
-# ============================================================================
-# Legacy endpoint compatibility (for existing clients)
-# ============================================================================
-
-@app.get("/tasks/weekly/{user_id}")
-async def get_weekly_tasks_legacy(user_id: str):
-    """Legacy endpoint for weekly tasks."""
-    tasks = await list_tasks(user_id)
-    return {
-        "user_id": user_id,
-        "tasks": [task.dict() for task in tasks]
-    }
-
-
-@app.get("/goals/list/{user_id}")
-async def get_goals_legacy(user_id: str):
-    """Legacy endpoint for goals list."""
-    goals = await list_goals(user_id)
-    return [goal.dict() for goal in goals]
 
 
 if __name__ == "__main__":

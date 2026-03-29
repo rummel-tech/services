@@ -15,8 +15,8 @@ COPY artemis/ artemis/
 # Set Python path to include common and artemis
 ENV PYTHONPATH=/app:/app/artemis:$PYTHONPATH
 
-EXPOSE 8000
+EXPOSE 8080
 
 # Run from the artemis directory to find the main module
 WORKDIR /app/artemis
-CMD ["uvicorn", "artemis.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "artemis.api.main:app", "--host", "0.0.0.0", "--port", "8080"]

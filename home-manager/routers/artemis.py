@@ -6,75 +6,20 @@ Implements the Artemis Module Contract v1.0:
   POST /artemis/agent/{tool_id}
   GET  /artemis/data/{data_id}
 """
-import os
 import sys
-import time
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from jose import JWTError, jwt
-from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from common.database import adapt_query, get_connection, get_cursor, get_database_url, is_sqlite
+from common.database import get_connection, get_cursor, get_database_url, is_sqlite
+from routers.auth import TokenData as _TokenData, require_token
 
 USE_SQLITE = is_sqlite(get_database_url())
 router = APIRouter(prefix="/artemis", tags=["artemis"])
-
-ARTEMIS_AUTH_URL = os.getenv("ARTEMIS_AUTH_URL", "http://localhost:8090")
-_artemis_public_key: Optional[str] = None
-_artemis_public_key_fetched_at: float = 0.0
-_KEY_CACHE_TTL = 86400  # 24 hours
-
-
-def _fetch_artemis_public_key() -> Optional[str]:
-    global _artemis_public_key, _artemis_public_key_fetched_at
-    now = time.time()
-    if _artemis_public_key and (now - _artemis_public_key_fetched_at) < _KEY_CACHE_TTL:
-        return _artemis_public_key
-    try:
-        r = httpx.get(f"{ARTEMIS_AUTH_URL}/auth/public-key", timeout=3.0)
-        if r.status_code == 200:
-            _artemis_public_key = r.json()["public_key"]
-            _artemis_public_key_fetched_at = now
-            return _artemis_public_key
-    except Exception:
-        pass
-    return None
-
-
-class _TokenData(BaseModel):
-    user_id: str
-    email: str = ""
-
-
-def require_token(authorization: Optional[str] = Header(None)) -> _TokenData:
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
-    raw = authorization.split(" ", 1)[1]
-    try:
-        unverified = jwt.get_unverified_claims(raw)
-    except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-
-    if unverified.get("iss") == "artemis-auth":
-        pub_key = _fetch_artemis_public_key()
-        if pub_key:
-            try:
-                payload = jwt.decode(raw, pub_key, algorithms=["RS256"], issuer="artemis-auth")
-                return _TokenData(user_id=payload["sub"], email=payload.get("email", ""))
-            except JWTError as e:
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {e}")
-        # Dev fallback: auth service not running — only permitted outside production
-        if os.getenv("ENVIRONMENT", "development") != "production":
-            return _TokenData(user_id=unverified.get("sub", "dev-user"), email=unverified.get("email", ""))
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Auth service unavailable")
-
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unsupported token issuer")
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +120,16 @@ MANIFEST = {
                 },
             },
         ],
+        "optional_endpoints": [
+            {
+                "path": "/artemis/summary",
+                "description": "Natural language task and household summary for AI briefings",
+            },
+            {
+                "path": "/artemis/calendar",
+                "description": "Upcoming calendar events for the next 14 days",
+            },
+        ],
     },
 }
 
@@ -199,13 +154,6 @@ def _q(sql: str, params: tuple) -> list[dict]:
             return [dict(zip([d[0] for d in cur.description], row)) for row in rows]
         return [dict(row) for row in rows]
 
-
-
-def _row_to_dict(row) -> dict:
-    if hasattr(row, "keys"):
-        return dict(row)
-    # sqlite3.Row supports index access; fall back to column-ordered dict
-    return {k: row[i] for i, k in enumerate(row.description)} if hasattr(row, "description") else {}
 
 
 # ---------------------------------------------------------------------------
@@ -369,3 +317,86 @@ def get_shared_data(data_id: str, token: _TokenData = Depends(require_token)) ->
         return {"data_id": "open_task_count", "data": {"count": total, "overdue": overdue}}
 
     raise HTTPException(status_code=404, detail=f"Unknown data_id: {data_id}")
+
+
+# ---------------------------------------------------------------------------
+# Summary (optional contract endpoint)
+# ---------------------------------------------------------------------------
+
+@router.get("/summary")
+def get_summary(token: _TokenData = Depends(require_token)) -> dict:
+    """Return a natural language task summary for AI briefings."""
+    today = str(date.today())
+
+    open_rows = _q("SELECT COUNT(*) as cnt FROM tasks WHERE user_id = %s AND status = 'open'", (token.user_id,))
+    in_progress_rows = _q("SELECT COUNT(*) as cnt FROM tasks WHERE user_id = %s AND status = 'in_progress'", (token.user_id,))
+    overdue_rows = _q(
+        "SELECT COUNT(*) as cnt FROM tasks WHERE user_id = %s AND status != 'done' AND due_date < %s",
+        (token.user_id, today),
+    )
+    next_rows = _q(
+        "SELECT title, due_date, priority FROM tasks WHERE user_id = %s AND status != 'done' AND due_date >= %s ORDER BY due_date ASC LIMIT 1",
+        (token.user_id, today),
+    )
+
+    open_count = open_rows[0]["cnt"] if open_rows else 0
+    in_progress_count = in_progress_rows[0]["cnt"] if in_progress_rows else 0
+    overdue_count = overdue_rows[0]["cnt"] if overdue_rows else 0
+    next_task = next_rows[0] if next_rows else None
+
+    parts = []
+    total_active = open_count + in_progress_count
+    if total_active == 0:
+        parts.append("No open tasks.")
+    else:
+        parts.append(f"{total_active} active task{'s' if total_active != 1 else ''} ({open_count} open, {in_progress_count} in progress).")
+    if overdue_count:
+        parts.append(f"{overdue_count} overdue.")
+    if next_task:
+        parts.append(f"Next due: {next_task['title']} ({next_task['due_date']}).")
+
+    return {
+        "module_id": "home-manager",
+        "summary": " ".join(parts),
+        "data": {
+            "open_tasks": open_count,
+            "in_progress_tasks": in_progress_count,
+            "overdue_tasks": overdue_count,
+            "next_due_task": dict(next_task) if next_task else None,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Calendar (optional contract endpoint)
+# ---------------------------------------------------------------------------
+
+@router.get("/calendar")
+def get_calendar(token: _TokenData = Depends(require_token)) -> dict:
+    """Return upcoming task events due in the next 14 days."""
+    today = datetime.today().date()
+    window_end = today + timedelta(days=14)
+
+    rows = _q(
+        "SELECT id, title, due_date, priority, description FROM tasks "
+        "WHERE user_id = %s AND due_date >= %s AND due_date <= %s AND status != 'done' "
+        "ORDER BY due_date ASC LIMIT 20",
+        (token.user_id, str(today), str(window_end)),
+    )
+
+    events = []
+    for row in rows:
+        events.append({
+            "id": str(row.get("id", uuid.uuid4())),
+            "title": row.get("title") or "Task",
+            "date": str(row["due_date"]),
+            "type": "task",
+            "priority": row.get("priority") or "medium",
+            "notes": row.get("description") or None,
+        })
+
+    return {
+        "module_id": "home-manager",
+        "events": events,
+        "window_days": 14,
+    }

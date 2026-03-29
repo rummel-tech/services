@@ -13,9 +13,16 @@ from pydantic import BaseModel, Field, ConfigDict
 
 
 class TaskStatus(str, Enum):
-    """Standard task statuses across all services."""
-    PENDING = "pending"
+    """Standard task statuses across all services.
+
+    Artemis contract (and preferred values): open, in_progress, done.
+    Legacy values kept for backward compatibility with existing data.
+    """
+    OPEN = "open"
     IN_PROGRESS = "in_progress"
+    DONE = "done"
+    # Legacy — backward compat
+    PENDING = "pending"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     ON_HOLD = "on_hold"
@@ -92,7 +99,7 @@ class Task(UserOwnedEntity):
     """
     title: str
     description: Optional[str] = None
-    status: TaskStatus = TaskStatus.PENDING
+    status: TaskStatus = TaskStatus.OPEN
     priority: Priority = Priority.MEDIUM
     category: str
     due_date: Optional[datetime] = None
@@ -186,7 +193,7 @@ class TaskCreate(BaseModel):
     user_id: str
     title: str
     description: Optional[str] = None
-    status: TaskStatus = TaskStatus.PENDING
+    status: TaskStatus = TaskStatus.OPEN
     priority: Priority = Priority.MEDIUM
     category: str
     due_date: Optional[datetime] = None

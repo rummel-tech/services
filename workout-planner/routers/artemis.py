@@ -14,7 +14,7 @@ import json
 import os
 import uuid
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -252,6 +252,16 @@ MANIFEST = {
                 "parameters": {
                     "week_start": {"type": "string", "description": "ISO date of week start", "required": False},
                 },
+            },
+        ],
+        "optional_endpoints": [
+            {
+                "path": "/artemis/summary",
+                "description": "Natural language workout readiness and activity summary for AI briefings",
+            },
+            {
+                "path": "/artemis/calendar",
+                "description": "Upcoming calendar events for the next 14 days",
             },
         ],
     },
@@ -688,3 +698,118 @@ def get_shared_data(
         }
 
     raise HTTPException(status_code=404, detail=f"Unknown data_id: {data_id}")
+
+
+# ---------------------------------------------------------------------------
+# Summary (optional contract endpoint)
+# ---------------------------------------------------------------------------
+
+@router.get("/summary")
+def get_summary(token: TokenData = Depends(require_token)) -> dict:
+    """Return a natural language fitness summary for AI briefings."""
+    user_id = token.user_id
+    today = str(date.today())
+
+    # Readiness score
+    readiness_data = _calculate_readiness(user_id)
+    readiness = readiness_data.get("readiness", 0.0)
+    readiness_label = (
+        "excellent" if readiness >= 0.8 else
+        "good" if readiness >= 0.6 else
+        "moderate" if readiness >= 0.4 else
+        "low"
+    )
+
+    # Today's workout plan
+    today_workout = None
+    with get_db() as conn:
+        rows = _q(conn, "SELECT plan_json FROM daily_plans WHERE user_id = %s AND date = %s LIMIT 1", (user_id, today))
+        if rows:
+            pj = rows[0]["plan_json"] if isinstance(rows[0], dict) else dict(rows[0]).get("plan_json")
+            if isinstance(pj, str):
+                try:
+                    pj = json.loads(pj)
+                except Exception:
+                    pj = {}
+            workouts = (pj or {}).get("workouts", [])
+            if workouts:
+                today_workout = workouts[0].get("name") or workouts[0].get("type")
+
+    # Weekly streak
+    week_start = date.today() - timedelta(days=date.today().weekday())
+    with get_db() as conn:
+        streak_rows = _q(
+            conn,
+            "SELECT COUNT(*) as cnt FROM daily_plans WHERE user_id = %s AND date >= %s AND date <= %s AND status = 'completed'",
+            (user_id, str(week_start), today),
+        )
+    completed_this_week = streak_rows[0]["cnt"] if streak_rows else 0
+
+    parts = [f"Readiness score: {round(readiness * 100)}% ({readiness_label})."]
+    if today_workout:
+        parts.append(f"Today's workout: {today_workout}.")
+    else:
+        parts.append("No workout planned for today.")
+    if completed_this_week:
+        parts.append(f"{completed_this_week} workout{'s' if completed_this_week != 1 else ''} completed this week.")
+
+    return {
+        "module_id": "workout-planner",
+        "summary": " ".join(parts),
+        "data": {
+            "date": today,
+            "readiness_score": readiness,
+            "readiness_label": readiness_label,
+            "todays_workout": today_workout,
+            "workouts_completed_this_week": completed_this_week,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Calendar (optional contract endpoint)
+# ---------------------------------------------------------------------------
+
+@router.get("/calendar")
+def get_calendar(token: TokenData = Depends(require_token)) -> dict:
+    """Return upcoming workout events for the next 14 days."""
+    user_id = token.user_id
+    today = datetime.today().date()
+    window_end = today + timedelta(days=14)
+
+    with get_db() as conn:
+        rows = _q(
+            conn,
+            "SELECT id, date, plan_json FROM daily_plans WHERE user_id = %s AND date >= %s AND date <= %s ORDER BY date ASC",
+            (user_id, str(today), str(window_end)),
+        )
+
+    events = []
+    for r in rows:
+        row = dict(r)
+        pj = row.get("plan_json")
+        if isinstance(pj, str):
+            try:
+                pj = json.loads(pj)
+            except Exception:
+                pj = {}
+        workouts = (pj or {}).get("workouts", [])
+        if not workouts:
+            workouts = [{"name": "Workout", "type": None, "notes": ""}]
+        for w in workouts:
+            events.append({
+                "id": str(row.get("id", uuid.uuid4())),
+                "title": w.get("name") or w.get("type") or "Workout",
+                "date": str(row["date"]),
+                "type": "workout",
+                "priority": "medium",
+                "notes": w.get("notes") or None,
+            })
+        if len(events) >= 20:
+            break
+
+    return {
+        "module_id": "workout-planner",
+        "events": events[:20],
+        "window_days": 14,
+    }

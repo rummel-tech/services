@@ -13,7 +13,7 @@ from datetime import date, datetime
 # Add common package to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -22,6 +22,7 @@ from common.database import (
     init_db, close_db, adapt_query, is_sqlite, get_database_url
 )
 from routers import artemis as artemis_router
+from routers.auth import TokenData, require_token
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -118,7 +119,7 @@ async def readiness_check():
 # ============================================================================
 
 @app.get("/meals/{user_id}", response_model=List[MealItem])
-async def list_meals(user_id: str, start_date: Optional[date] = None, end_date: Optional[date] = None):
+async def list_meals(user_id: str, start_date: Optional[date] = None, end_date: Optional[date] = None, token: TokenData = Depends(require_token)):
     """List meals for a user, optionally filtered by date range."""
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -141,7 +142,7 @@ async def list_meals(user_id: str, start_date: Optional[date] = None, end_date: 
 
 
 @app.post("/meals", response_model=MealItem, status_code=status.HTTP_201_CREATED)
-async def create_meal(meal: MealItemCreate):
+async def create_meal(meal: MealItemCreate, token: TokenData = Depends(require_token)):
     """Create a new meal entry."""
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -172,7 +173,7 @@ async def create_meal(meal: MealItemCreate):
 
 
 @app.get("/meals/today/{user_id}", response_model=DailyMeals)
-async def get_todays_meals(user_id: str, meal_date: Optional[date] = None):
+async def get_todays_meals(user_id: str, meal_date: Optional[date] = None, token: TokenData = Depends(require_token)):
     """Get all meals for today (or specified date)."""
     target_date = meal_date or date.today()
 
@@ -203,7 +204,7 @@ async def get_todays_meals(user_id: str, meal_date: Optional[date] = None):
 
 
 @app.get("/meals/weekly-plan/{user_id}")
-async def get_weekly_meal_plan(user_id: str, week_start: Optional[date] = None):
+async def get_weekly_meal_plan(user_id: str, week_start: Optional[date] = None, token: TokenData = Depends(require_token)):
     """Get meal plan for the week."""
     target_week = week_start or date.today()
 
@@ -213,7 +214,7 @@ async def get_weekly_meal_plan(user_id: str, week_start: Optional[date] = None):
 
     for day_offset in range(7):
         day = target_week + timedelta(days=day_offset)
-        day_meals = await get_todays_meals(user_id, day)
+        day_meals = await get_todays_meals(user_id, day, token=token)
         daily_plans.append({
             "day": day.strftime("%A"),
             "date": day.isoformat(),
@@ -230,7 +231,7 @@ async def get_weekly_meal_plan(user_id: str, week_start: Optional[date] = None):
 
 
 @app.delete("/meals/{user_id}/{meal_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_meal(user_id: str, meal_id: UUID):
+async def delete_meal(user_id: str, meal_id: UUID, token: TokenData = Depends(require_token)):
     """Delete a meal entry."""
     with get_connection() as conn:
         cur = get_cursor(conn)

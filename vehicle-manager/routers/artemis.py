@@ -6,75 +6,20 @@ Implements the Artemis Module Contract v1.0:
   POST /artemis/agent/{tool_id}
   GET  /artemis/data/{data_id}
 """
-import os
 import sys
-import time
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from jose import JWTError, jwt
-from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from common.database import adapt_query, dict_from_row, get_connection, get_cursor, get_database_url, is_sqlite
+from routers.auth import TokenData as _TokenData, require_token
 
 USE_SQLITE = is_sqlite(get_database_url())
 router = APIRouter(prefix="/artemis", tags=["artemis"])
-
-ARTEMIS_AUTH_URL = os.getenv("ARTEMIS_AUTH_URL", "http://localhost:8090")
-_artemis_public_key: Optional[str] = None
-_artemis_public_key_fetched_at: float = 0.0
-_KEY_CACHE_TTL = 86400  # 24 hours
-
-
-def _fetch_artemis_public_key() -> Optional[str]:
-    global _artemis_public_key, _artemis_public_key_fetched_at
-    now = time.time()
-    if _artemis_public_key and (now - _artemis_public_key_fetched_at) < _KEY_CACHE_TTL:
-        return _artemis_public_key
-    try:
-        r = httpx.get(f"{ARTEMIS_AUTH_URL}/auth/public-key", timeout=3.0)
-        if r.status_code == 200:
-            _artemis_public_key = r.json()["public_key"]
-            _artemis_public_key_fetched_at = now
-            return _artemis_public_key
-    except Exception:
-        pass
-    return None
-
-
-class _TokenData(BaseModel):
-    user_id: str
-    email: str = ""
-
-
-def require_token(authorization: Optional[str] = Header(None)) -> _TokenData:
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
-    raw = authorization.split(" ", 1)[1]
-    try:
-        unverified = jwt.get_unverified_claims(raw)
-    except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-
-    if unverified.get("iss") == "artemis-auth":
-        pub_key = _fetch_artemis_public_key()
-        if pub_key:
-            try:
-                payload = jwt.decode(raw, pub_key, algorithms=["RS256"], issuer="artemis-auth")
-                return _TokenData(user_id=payload["sub"], email=payload.get("email", ""))
-            except JWTError as e:
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {e}")
-        # Dev fallback: auth service not running — only permitted outside production
-        if os.getenv("ENVIRONMENT", "development") != "production":
-            return _TokenData(user_id=unverified.get("sub", "dev-user"), email=unverified.get("email", ""))
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Auth service unavailable")
-
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unsupported token issuer")
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +128,16 @@ MANIFEST = {
                 "parameters": {
                     "vehicle_id": {"type": "string", "required": True},
                 },
+            },
+        ],
+        "optional_endpoints": [
+            {
+                "path": "/artemis/summary",
+                "description": "Natural language vehicle fleet and maintenance summary for AI briefings",
+            },
+            {
+                "path": "/artemis/calendar",
+                "description": "Upcoming calendar events for the next 14 days",
             },
         ],
     },
@@ -436,3 +391,80 @@ def get_shared_data(data_id: str, token: _TokenData = Depends(require_token)) ->
         }
 
     raise HTTPException(status_code=404, detail=f"Unknown data_id: {data_id}")
+
+
+# ---------------------------------------------------------------------------
+# Summary (optional contract endpoint)
+# ---------------------------------------------------------------------------
+
+@router.get("/summary")
+def get_summary(token: _TokenData = Depends(require_token)) -> dict:
+    """Return a natural language vehicle fleet summary for AI briefings."""
+    today = str(date.today())
+    next_30 = str(date.today() + __import__("datetime").timedelta(days=30))
+
+    vehicle_rows = _q("SELECT COUNT(*) as cnt FROM assets WHERE user_id = %s AND asset_type = 'vehicle'", (token.user_id,))
+    upcoming_rows = _q(
+        "SELECT a.name, m.maintenance_type, m.next_due_date FROM maintenance_records m "
+        "JOIN assets a ON a.id = m.asset_id "
+        "WHERE m.user_id = %s AND m.next_due_date BETWEEN %s AND %s ORDER BY m.next_due_date ASC LIMIT 3",
+        (token.user_id, today, next_30),
+    )
+
+    vehicle_count = vehicle_rows[0]["cnt"] if vehicle_rows else 0
+    upcoming = list(upcoming_rows)
+
+    parts = [f"{vehicle_count} vehicle{'s' if vehicle_count != 1 else ''} in fleet."]
+    if upcoming:
+        due_str = ", ".join(f"{r['name']} {r['maintenance_type']} ({r['next_due_date']})" for r in upcoming)
+        parts.append(f"Upcoming maintenance: {due_str}.")
+    else:
+        parts.append("No maintenance due in the next 30 days.")
+
+    return {
+        "module_id": "vehicle-manager",
+        "summary": " ".join(parts),
+        "data": {
+            "vehicle_count": vehicle_count,
+            "upcoming_maintenance": upcoming,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Calendar (optional contract endpoint)
+# ---------------------------------------------------------------------------
+
+@router.get("/calendar")
+def get_calendar(token: _TokenData = Depends(require_token)) -> dict:
+    """Return upcoming maintenance events due in the next 14 days."""
+    today = datetime.today().date()
+    window_end = today + timedelta(days=14)
+
+    rows = _q(
+        "SELECT m.id, m.maintenance_type, m.next_due_date, m.description, a.name AS vehicle_name "
+        "FROM maintenance_records m "
+        "JOIN assets a ON a.id = m.asset_id "
+        "WHERE a.user_id = %s AND m.next_due_date >= %s AND m.next_due_date <= %s "
+        "ORDER BY m.next_due_date ASC LIMIT 20",
+        (token.user_id, str(today), str(window_end)),
+    )
+
+    events = []
+    for row in rows:
+        vehicle_name = row.get("vehicle_name") or "Vehicle"
+        maint_type = row.get("maintenance_type") or "Maintenance"
+        events.append({
+            "id": str(row.get("id", uuid.uuid4())),
+            "title": f"{vehicle_name} — {maint_type}",
+            "date": str(row["next_due_date"]),
+            "type": "maintenance",
+            "priority": "medium",
+            "notes": row.get("description") or None,
+        })
+
+    return {
+        "module_id": "vehicle-manager",
+        "events": events,
+        "window_days": 14,
+    }

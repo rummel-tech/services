@@ -1,7 +1,7 @@
 # Deployment Guide - Staging Environment
 
 ## Overview
-This guide covers deploying Artemis and all supporting services (home-manager, vehicle-manager, meal-planner) to the staging environment.
+This guide covers deploying Artemis and all supporting services to the staging environment.
 
 ## Prerequisites
 
@@ -30,10 +30,12 @@ The following infrastructure must exist (created via Terraform):
 
 | Service | Port | Database | Dependencies |
 |---------|------|----------|--------------|
-| artemis | 8000 | N/A (Gateway) | home-manager, vehicle-manager, meal-planner |
+| auth | 8090 | N/A | none |
+| workout-planner | 8000 | PostgreSQL | common |
 | home-manager | 8020 | PostgreSQL | common |
 | vehicle-manager | 8030 | PostgreSQL | common |
-| meal-planner | 8010 | PostgreSQL | common |
+| meal-planner | 8010 | PostgreSQL | common, workout-planner (optional) |
+| artemis | 8080 | N/A (Gateway) | auth + all module services |
 
 ## Pre-Deployment Steps
 
@@ -79,7 +81,7 @@ This creates:
 
 ### 3. Configure Database Secrets
 
-Each service needs a `DATABASE_URL` secret in AWS Secrets Manager:
+Each module service needs a `DATABASE_URL` secret in AWS Secrets Manager:
 
 ```bash
 # Get the RDS endpoint from Terraform output
@@ -89,22 +91,14 @@ DB_ENDPOINT=$(cd /home/shawn/_Projects/infrastructure/terraform && terraform out
 DATABASE_URL="postgresql://admin:YOUR_PASSWORD@${DB_ENDPOINT}:5432/artemis"
 
 # Create secrets for each service
-aws secretsmanager create-secret \
-  --name staging/home-manager/database_url \
-  --secret-string "$DATABASE_URL" \
-  --region us-east-1
+for svc in workout-planner home-manager vehicle-manager meal-planner; do
+  aws secretsmanager create-secret \
+    --name "staging/${svc}/database_url" \
+    --secret-string "$DATABASE_URL" \
+    --region us-east-1
+done
 
-aws secretsmanager create-secret \
-  --name staging/vehicle-manager/database_url \
-  --secret-string "$DATABASE_URL" \
-  --region us-east-1
-
-aws secretsmanager create-secret \
-  --name staging/meal-planner/database_url \
-  --secret-string "$DATABASE_URL" \
-  --region us-east-1
-
-# Artemis doesn't need database (it's a gateway)
+# auth and artemis don't need a DATABASE_URL secret
 ```
 
 ### 4. Run Database Migrations
@@ -128,112 +122,50 @@ aws ecs execute-command \
 
 ### Method 1: GitHub Actions (Recommended)
 
-Deploy via GitHub Actions workflow dispatch:
-
-#### Deploy Home Manager
-```bash
-# Navigate to GitHub
-# Go to: infrastructure/.github/workflows/deploy-home-manager-backend.yml
-# Click "Run workflow"
-# Select:
-#   - environment: staging
-#   - repo_ref: main
-```
-
-Or via `gh` CLI:
-```bash
-gh workflow run deploy-home-manager-backend.yml \
-  --repo rummel-tech/infrastructure \
-  -f environment=staging \
-  -f repo_ref=main
-```
-
-#### Deploy Vehicle Manager
-```bash
-gh workflow run deploy-vehicle-manager-backend.yml \
-  --repo rummel-tech/infrastructure \
-  -f environment=staging \
-  -f repo_ref=main
-```
-
-#### Deploy Meal Planner
-```bash
-gh workflow run deploy-meal-planner-backend.yml \
-  --repo rummel-tech/infrastructure \
-  -f environment=staging \
-  -f repo_ref=main
-```
-
-#### Deploy Artemis
-```bash
-gh workflow run deploy-artemis-backend.yml \
-  --repo rummel-tech/infrastructure \
-  -f environment=staging \
-  -f repo_ref=main
-```
-
-### Method 2: Manual Deploy via Reusable Workflow
+All services are deployed from a single workflow in the `services` repository:
 
 ```bash
-# Deploy all services in order
-gh workflow run deploy-backend.yml \
-  --repo rummel-tech/infrastructure \
-  -f app_name=home-manager \
-  -f environment=staging \
-  -f repo_ref=main
+# Deploy a specific service
+gh workflow run deploy-services.yml \
+  --repo rummel-tech/services \
+  -f service=home-manager \
+  -f environment=staging
 
-gh workflow run deploy-backend.yml \
-  --repo rummel-tech/infrastructure \
-  -f app_name=vehicle-manager \
-  -f environment=staging \
-  -f repo_ref=main
-
-gh workflow run deploy-backend.yml \
-  --repo rummel-tech/infrastructure \
-  -f app_name=meal-planner \
-  -f environment=staging \
-  -f repo_ref=main
-
-gh workflow run deploy-backend.yml \
-  --repo rummel-tech/infrastructure \
-  -f app_name=artemis \
-  -f environment=staging \
-  -f repo_ref=main
+# Deploy all services (push to main triggers automatic detection)
+git push origin main
 ```
 
-### Method 3: Deploy All Services Script
+The workflow (`services/.github/workflows/deploy-services.yml`) auto-detects which services changed on push to `main` and only deploys those. To force-deploy a specific service use `workflow_dispatch` with the `service` input.
 
-Create a batch deployment script:
+Available service inputs: `auth`, `workout-planner`, `home-manager`, `vehicle-manager`, `meal-planner`, `artemis`
+
+### Method 2: Deploy All Services Script
 
 ```bash
 #!/bin/bash
-# deploy-all-staging.sh
-
-SERVICES=("home-manager" "vehicle-manager" "meal-planner" "artemis")
+# Deploy all services in dependency order
+SERVICES=("auth" "workout-planner" "home-manager" "vehicle-manager" "meal-planner" "artemis")
 
 for service in "${SERVICES[@]}"; do
     echo "Deploying $service to staging..."
-    gh workflow run deploy-backend.yml \
-      --repo rummel-tech/infrastructure \
-      -f app_name=$service \
-      -f environment=staging \
-      -f repo_ref=main
-
-    echo "Waiting 30 seconds before next deployment..."
-    sleep 30
+    gh workflow run deploy-services.yml \
+      --repo rummel-tech/services \
+      -f service=$service \
+      -f environment=staging
+    sleep 15
 done
-
-echo "All deployments triggered!"
 ```
 
 ## Deployment Order
 
 **IMPORTANT**: Deploy in this order to ensure dependencies are available:
 
-1. **home-manager** (required by artemis assets module)
-2. **vehicle-manager** (required by artemis assets module)
-3. **meal-planner** (required by artemis nutrition module)
-4. **artemis** (depends on all above services)
+1. **auth** (required by all services for token verification)
+2. **workout-planner** (standalone module)
+3. **home-manager** (standalone module)
+4. **vehicle-manager** (standalone module)
+5. **meal-planner** (optionally consumes workout-planner data)
+6. **artemis** (gateway — depends on auth + all module services)
 
 ## Post-Deployment Validation
 
@@ -243,7 +175,7 @@ echo "All deployments triggered!"
 # Check all services
 aws ecs describe-services \
   --cluster staging-cluster \
-  --services staging-home-manager-service staging-vehicle-manager-service staging-meal-planner-service staging-artemis-service \
+  --services staging-auth-service staging-workout-planner-service staging-home-manager-service staging-vehicle-manager-service staging-meal-planner-service staging-artemis-service \
   --region us-east-1 \
   --query 'services[*].[serviceName,status,runningCount,desiredCount]' \
   --output table
@@ -252,17 +184,8 @@ aws ecs describe-services \
 ### 2. View Logs
 
 ```bash
-# Home Manager logs
-aws logs tail /ecs/staging-home-manager --follow --region us-east-1
-
-# Vehicle Manager logs
-aws logs tail /ecs/staging-vehicle-manager --follow --region us-east-1
-
-# Meal Planner logs
-aws logs tail /ecs/staging-meal-planner --follow --region us-east-1
-
-# Artemis logs
-aws logs tail /ecs/staging-artemis --follow --region us-east-1
+# Individual service logs (replace <service> with: auth, workout-planner, home-manager, vehicle-manager, meal-planner, artemis)
+aws logs tail /ecs/staging-<service> --follow --region us-east-1
 ```
 
 ### 3. Test Health Endpoints
@@ -272,55 +195,37 @@ Get the ALB DNS name:
 ALB_DNS=$(cd /home/shawn/_Projects/infrastructure/terraform && terraform output -raw alb_dns_name)
 ```
 
-Test each service:
+Health and readiness endpoints are unauthenticated:
 ```bash
-# Home Manager
+curl http://${ALB_DNS}/auth/health
+curl http://${ALB_DNS}/workout-planner/health
 curl http://${ALB_DNS}/home-manager/health
-# Expected: {"status":"healthy","service":"home-manager"}
-
-# Vehicle Manager
 curl http://${ALB_DNS}/vehicle-manager/health
-# Expected: {"status":"healthy","service":"vehicle-manager"}
-
-# Meal Planner
 curl http://${ALB_DNS}/meal-planner/health
-# Expected: {"status":"healthy","service":"meal-planner"}
-
-# Artemis
 curl http://${ALB_DNS}/artemis/health
-# Expected: {"status":"healthy"}
+# All should return: {"status":"healthy","service":"<name>"}
 ```
 
 ### 4. Test Artemis Integration
 
+All data endpoints require a valid JWT. Obtain a token from the auth service first:
 ```bash
-# Get Artemis dashboard
-curl http://${ALB_DNS}/artemis/dashboard/summary
+TOKEN=$(curl -s -X POST http://${ALB_DNS}/auth/token \
+  -H "Content-Type: application/json" \
+  -d '{"username":"test@example.com","password":"..."}' | jq -r '.access_token')
 
-# Expected: JSON with module summaries including:
-# - nutrition module showing meal-planner data
-# - assets module showing home-manager + vehicle-manager data
+# Get Artemis dashboard
+curl -H "Authorization: Bearer $TOKEN" http://${ALB_DNS}/artemis/dashboard/summary
 ```
 
-### 5. Test Database Connectivity
+### 5. Test Module Manifests
 
+Manifests are unauthenticated — verify all modules registered correctly:
 ```bash
-# Create a test asset via home-manager
-curl -X POST http://${ALB_DNS}/home-manager/assets \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": "test_user",
-    "name": "Test Item",
-    "asset_type": "home",
-    "category": "appliance",
-    "condition": "good"
-  }'
-
-# List assets
-curl http://${ALB_DNS}/home-manager/assets/test_user
-
-# Verify Artemis can see it
-curl http://${ALB_DNS}/artemis/dashboard/summary
+for svc in workout-planner home-manager vehicle-manager meal-planner; do
+  echo "=== $svc ==="
+  curl -s http://${ALB_DNS}/${svc}/artemis/manifest | jq '.module.id'
+done
 ```
 
 ## Troubleshooting
@@ -370,10 +275,12 @@ aws ecs describe-task-definition \
 
 4. Update Artemis environment variables if needed:
 ```bash
-# Set backend service URLs
-SERVICE_HOME_MANAGER_URL=http://staging-home-manager.local:8020
-SERVICE_VEHICLE_MANAGER_URL=http://staging-vehicle-manager.local:8030
-SERVICE_MEAL_PLANNER_URL=http://staging-meal-planner.local:8010
+# Set backend service URLs (env vars injected via ECS task definition / Terraform)
+WORKOUT_PLANNER_URL=http://staging-workout-planner.local:8000
+HOME_MANAGER_URL=http://staging-home-manager.local:8020
+VEHICLE_MANAGER_URL=http://staging-vehicle-manager.local:8030
+MEAL_PLANNER_URL=http://staging-meal-planner.local:8010
+ARTEMIS_AUTH_URL=http://staging-auth.local:8090
 ```
 
 ### Docker Build Failures

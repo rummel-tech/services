@@ -10,11 +10,12 @@ on:
       - 'home-manager/**'
       - 'vehicle-manager/**'
       - 'workout-planner/**'
+      - 'auth/**'
       - '.github/workflows/**'
   workflow_dispatch:
     inputs:
       service:
-        description: 'Service to deploy (all, artemis, meal-planner, home-manager, vehicle-manager, workout-planner)'
+        description: 'Service to deploy (all, artemis, meal-planner, home-manager, vehicle-manager, workout-planner, auth)'
         required: true
         default: 'all'
         type: choice
@@ -25,6 +26,7 @@ on:
           - home-manager
           - vehicle-manager
           - workout-planner
+          - auth
 
 permissions:
   id-token: write
@@ -43,6 +45,7 @@ jobs:
       home-manager: ${{ steps.changes.outputs.home-manager }}
       vehicle-manager: ${{ steps.changes.outputs.vehicle-manager }}
       workout-planner: ${{ steps.changes.outputs.workout-planner }}
+      auth: ${{ steps.changes.outputs.auth }}
       common: ${{ steps.changes.outputs.common }}
     steps:
       - uses: actions/checkout@v4
@@ -60,6 +63,7 @@ jobs:
               echo "home-manager=true" >> $GITHUB_OUTPUT
               echo "vehicle-manager=true" >> $GITHUB_OUTPUT
               echo "workout-planner=true" >> $GITHUB_OUTPUT
+              echo "auth=true" >> $GITHUB_OUTPUT
               echo "common=true" >> $GITHUB_OUTPUT
             else
               echo "artemis=$([[ '$SERVICE' == 'artemis' ]] && echo true || echo false)" >> $GITHUB_OUTPUT
@@ -67,6 +71,7 @@ jobs:
               echo "home-manager=$([[ '$SERVICE' == 'home-manager' ]] && echo true || echo false)" >> $GITHUB_OUTPUT
               echo "vehicle-manager=$([[ '$SERVICE' == 'vehicle-manager' ]] && echo true || echo false)" >> $GITHUB_OUTPUT
               echo "workout-planner=$([[ '$SERVICE' == 'workout-planner' ]] && echo true || echo false)" >> $GITHUB_OUTPUT
+              echo "auth=$([[ '$SERVICE' == 'auth' ]] && echo true || echo false)" >> $GITHUB_OUTPUT
               echo "common=true" >> $GITHUB_OUTPUT
             fi
           else
@@ -76,6 +81,7 @@ jobs:
             echo "home-manager=$(echo '$CHANGED' | grep -q 'home-manager/' && echo true || echo false)" >> $GITHUB_OUTPUT
             echo "vehicle-manager=$(echo '$CHANGED' | grep -q 'vehicle-manager/' && echo true || echo false)" >> $GITHUB_OUTPUT
             echo "workout-planner=$(echo '$CHANGED' | grep -q 'workout-planner/' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "auth=$(echo '$CHANGED' | grep -q 'auth/' && echo true || echo false)" >> $GITHUB_OUTPUT
             echo "common=$(echo '$CHANGED' | grep -q 'common/' && echo true || echo false)" >> $GITHUB_OUTPUT
           fi
 
@@ -271,6 +277,52 @@ jobs:
       ECR_REPOSITORY: workout-planner
       SERVICE_NAME: workout-planner
       SERVICE_PORT: 8000
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Ensure ECR repository exists
+        run: |
+          aws ecr describe-repositories --repository-names $ECR_REPOSITORY --region $AWS_REGION >/dev/null 2>&1 || \
+          aws ecr create-repository --repository-name $ECR_REPOSITORY --image-scanning-configuration scanOnPush=true --region $AWS_REGION
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f $SERVICE_NAME/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Update ECS service (if exists)
+        continue-on-error: true
+        run: |
+          aws ecs update-service --cluster $ECS_CLUSTER --service ${SERVICE_NAME}-service --force-new-deployment --region $AWS_REGION || echo "Service not found, skipping update"
+
+      - name: Deployment summary
+        run: |
+          echo "✅ $SERVICE_NAME deployed!"
+          echo "📦 Image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}"
+
+  deploy-auth:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.auth == 'true' || needs.detect-changes.outputs.common == 'true'
+    runs-on: ubuntu-latest
+    env:
+      ECR_REPOSITORY: auth
+      SERVICE_NAME: auth
+      SERVICE_PORT: 8090
     steps:
       - uses: actions/checkout@v4
 

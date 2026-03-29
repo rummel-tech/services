@@ -137,14 +137,20 @@ class ModuleRegistry:
     def healthy_modules(self) -> List[RegisteredModule]:
         return [m for m in self._modules.values() if m.healthy]
 
-    def build_claude_tools(self) -> List[Dict[str, Any]]:
+    def build_claude_tools(self, allowed_modules: set = None) -> List[Dict[str, Any]]:
         """Auto-generate Claude tool definitions from module manifests.
 
         Tool name format: {module_id}__{tool_id}
         (double underscore so we can reverse-parse it)
+
+        Args:
+            allowed_modules: If non-empty, only include tools from these module IDs.
+                             Empty set or None means include all healthy modules.
         """
         tools = []
         for mod in self.healthy_modules():
+            if allowed_modules and mod.id not in allowed_modules:
+                continue
             for tool in mod.agent_tools:
                 params = tool.get("parameters", {})
                 properties = {}

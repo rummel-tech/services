@@ -11,7 +11,6 @@ the public key from the auth service at ARTEMIS_AUTH_URL.
 """
 import os
 import sys
-import time
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -19,65 +18,15 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from jose import JWTError, jwt
-from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from common.database import adapt_query, get_connection, get_cursor, get_database_url, is_sqlite
+from common.database import get_connection, get_cursor, get_database_url, is_sqlite
+from routers.auth import TokenData as _TokenData, require_token
+
+WORKOUT_PLANNER_URL = os.getenv("WORKOUT_PLANNER_URL", "http://localhost:8000")
 
 USE_SQLITE = is_sqlite(get_database_url())
 router = APIRouter(prefix="/artemis", tags=["artemis"])
-
-ARTEMIS_AUTH_URL = os.getenv("ARTEMIS_AUTH_URL", "http://localhost:8090")
-_artemis_public_key: Optional[str] = None
-_artemis_public_key_fetched_at: float = 0.0
-_KEY_CACHE_TTL = 86400  # 24 hours
-
-
-def _fetch_artemis_public_key() -> Optional[str]:
-    global _artemis_public_key, _artemis_public_key_fetched_at
-    now = time.time()
-    if _artemis_public_key and (now - _artemis_public_key_fetched_at) < _KEY_CACHE_TTL:
-        return _artemis_public_key
-    try:
-        r = httpx.get(f"{ARTEMIS_AUTH_URL}/auth/public-key", timeout=3.0)
-        if r.status_code == 200:
-            _artemis_public_key = r.json()["public_key"]
-            _artemis_public_key_fetched_at = now
-            return _artemis_public_key
-    except Exception:
-        pass
-    return None
-
-
-class _TokenData(BaseModel):
-    user_id: str
-    email: str = ""
-
-
-def require_token(authorization: Optional[str] = Header(None)) -> _TokenData:
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
-    raw = authorization.split(" ", 1)[1]
-    try:
-        unverified = jwt.get_unverified_claims(raw)
-    except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-
-    if unverified.get("iss") == "artemis-auth":
-        pub_key = _fetch_artemis_public_key()
-        if pub_key:
-            try:
-                payload = jwt.decode(raw, pub_key, algorithms=["RS256"], issuer="artemis-auth")
-                return _TokenData(user_id=payload["sub"], email=payload.get("email", ""))
-            except JWTError as e:
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid token: {e}")
-        # Dev fallback: auth service not running — only permitted outside production
-        if os.getenv("ENVIRONMENT", "development") != "production":
-            return _TokenData(user_id=unverified.get("sub", "dev-user"), email=unverified.get("email", ""))
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Auth service unavailable")
-
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unsupported token issuer")
 
 
 # ---------------------------------------------------------------------------
@@ -129,7 +78,7 @@ MANIFEST = {
             {
                 "id": "daily_calories",
                 "name": "Daily Calories Consumed",
-                "description": "Total calories consumed per day",
+                "description": "Total calories consumed per day, with optional net calories if workout data available",
                 "endpoint": "/artemis/data/daily_calories",
                 "schema": {
                     "date": "string (ISO date)",
@@ -137,8 +86,18 @@ MANIFEST = {
                     "protein_g": "number",
                     "carbs_g": "number",
                     "fat_g": "number",
+                    "calories_burned": "number | null",
+                    "net_calories": "number | null",
                 },
                 "requires_permission": "nutrition.calories.read",
+            },
+        ],
+        "consumes_data": [
+            {
+                "module_id": "workout-planner",
+                "data_id": "calories_burned",
+                "description": "Calories burned from workouts, used to calculate net calories",
+                "optional": True,
             },
         ],
         "agent_tools": [
@@ -176,6 +135,16 @@ MANIFEST = {
                 },
             },
         ],
+        "optional_endpoints": [
+            {
+                "path": "/artemis/summary",
+                "description": "Natural language nutrition summary for AI briefings",
+            },
+            {
+                "path": "/artemis/calendar",
+                "description": "Upcoming calendar events for the next 14 days",
+            },
+        ],
     },
 }
 
@@ -199,6 +168,23 @@ def _q(sql: str, params: tuple) -> list[dict]:
         if USE_SQLITE:
             return [dict(zip([d[0] for d in cur.description], row)) for row in rows]
         return [dict(row) for row in rows]
+
+
+def _fetch_calories_burned(authorization: str, target_date: str) -> Optional[int]:
+    """Best-effort fetch of calories burned from workout-planner. Returns None on any failure."""
+    try:
+        with httpx.Client(timeout=3.0) as client:
+            resp = client.get(
+                f"{WORKOUT_PLANNER_URL}/artemis/data/calories_burned",
+                params={"date": target_date},
+                headers={"Authorization": authorization},
+            )
+            if resp.status_code == 200:
+                data = resp.json().get("data", {})
+                return data.get("calories")
+    except Exception:
+        pass
+    return None
 
 
 def _day_totals(user_id: str, target_date: str) -> dict:
@@ -361,12 +347,15 @@ def agent_get_weekly_nutrition(
 def get_shared_data(
     data_id: str,
     date: Optional[str] = None,
+    authorization: Optional[str] = Header(None),
     token: _TokenData = Depends(require_token),
 ) -> dict:
     target_date = date or str(datetime.today().date())
 
     if data_id == "daily_calories":
         data = _day_totals(token.user_id, target_date)
+        calories_burned = _fetch_calories_burned(authorization or "", target_date)
+        net_calories = (data["total_calories"] - calories_burned) if calories_burned is not None else None
         return {
             "data_id": "daily_calories",
             "data": {
@@ -375,7 +364,89 @@ def get_shared_data(
                 "protein_g": data["total_protein_g"],
                 "carbs_g": data["total_carbs_g"],
                 "fat_g": data["total_fat_g"],
+                "calories_burned": calories_burned,
+                "net_calories": net_calories,
             },
         }
 
     raise HTTPException(status_code=404, detail=f"Unknown data_id: {data_id}")
+
+
+# ---------------------------------------------------------------------------
+# Summary (optional contract endpoint)
+# ---------------------------------------------------------------------------
+
+@router.get("/summary")
+def get_summary(
+    authorization: Optional[str] = Header(None),
+    token: _TokenData = Depends(require_token),
+) -> dict:
+    """Return a natural language nutrition summary for AI briefings."""
+    today = str(datetime.today().date())
+    data = _day_totals(token.user_id, today)
+    cal = data["total_calories"]
+    meals = len(data["meals"])
+    protein = data["total_protein_g"]
+    carbs = data["total_carbs_g"]
+    fat = data["total_fat_g"]
+    calories_burned = _fetch_calories_burned(authorization or "", today)
+    net_calories = (cal - calories_burned) if calories_burned is not None else None
+
+    if meals == 0:
+        text = f"No meals logged today ({today})."
+    else:
+        meal_word = "meal" if meals == 1 else "meals"
+        text = (
+            f"Today ({today}) you've logged {meals} {meal_word} totalling {cal} calories "
+            f"({protein}g protein, {carbs}g carbs, {fat}g fat)."
+        )
+        if calories_burned is not None:
+            text += f" Burned {calories_burned} cal from workouts; net {net_calories} cal."
+
+    return {
+        "module_id": "meal-planner",
+        "summary": text,
+        "data": {
+            "date": today,
+            "calories": cal,
+            "protein_g": protein,
+            "carbs_g": carbs,
+            "fat_g": fat,
+            "meals_logged": meals,
+            "calories_burned": calories_burned,
+            "net_calories": net_calories,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Calendar (optional contract endpoint)
+# ---------------------------------------------------------------------------
+
+@router.get("/calendar")
+def get_calendar(token: _TokenData = Depends(require_token)) -> dict:
+    """Return upcoming meal events for the next 14 days."""
+    today = datetime.today().date()
+    window_end = today + timedelta(days=14)
+
+    rows = _q(
+        "SELECT id, name, date, meal_type, notes FROM meals WHERE user_id = %s AND date >= %s AND date <= %s ORDER BY date ASC LIMIT 20",
+        (token.user_id, str(today), str(window_end)),
+    )
+
+    events = []
+    for row in rows:
+        events.append({
+            "id": str(row.get("id", uuid.uuid4())),
+            "title": row.get("name") or "Meal",
+            "date": str(row["date"]),
+            "type": "meal",
+            "priority": "medium",
+            "notes": row.get("meal_type") or None,
+        })
+
+    return {
+        "module_id": "meal-planner",
+        "events": events,
+        "window_days": 14,
+    }

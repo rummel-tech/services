@@ -4,6 +4,7 @@ Fetches the RSA public key from the auth service on first use, then caches
 it for all subsequent validations.
 """
 import logging
+import time
 from typing import Optional
 
 import httpx
@@ -15,11 +16,14 @@ from artemis.core.settings import get_settings
 log = logging.getLogger("artemis.auth")
 
 _public_key: Optional[str] = None
+_public_key_fetched_at: float = 0.0
+_KEY_CACHE_TTL = 86400  # 24 hours
 
 
 async def fetch_public_key() -> Optional[str]:
-    global _public_key
-    if _public_key:
+    global _public_key, _public_key_fetched_at
+    now = time.time()
+    if _public_key and (now - _public_key_fetched_at) < _KEY_CACHE_TTL:
         return _public_key
     settings = get_settings()
     try:
@@ -27,6 +31,7 @@ async def fetch_public_key() -> Optional[str]:
             r = await client.get(f"{settings.artemis_auth_url}/auth/public-key")
             if r.status_code == 200:
                 _public_key = r.json()["public_key"]
+                _public_key_fetched_at = now
                 log.info("artemis public key cached")
                 return _public_key
     except Exception as e:
@@ -36,8 +41,9 @@ async def fetch_public_key() -> Optional[str]:
 
 def reset_public_key_cache() -> None:
     """Force re-fetch on next validation (useful for key rotation)."""
-    global _public_key
+    global _public_key, _public_key_fetched_at
     _public_key = None
+    _public_key_fetched_at = 0.0
 
 
 async def validate_token(authorization: Optional[str] = Header(None)) -> dict:

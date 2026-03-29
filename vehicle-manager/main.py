@@ -15,7 +15,7 @@ from datetime import datetime
 # Add common package to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -30,6 +30,7 @@ from common.database import (
     init_db, close_db, adapt_query, is_sqlite, get_database_url
 )
 from routers import artemis as artemis_router
+from routers.auth import TokenData, require_token
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -126,7 +127,7 @@ async def readiness_check():
 # ============================================================================
 
 @app.get("/vehicles/{user_id}", response_model=List[Asset])
-async def list_vehicles(user_id: str):
+async def list_vehicles(user_id: str, token: TokenData = Depends(require_token)):
     """List all vehicles for a user."""
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -140,7 +141,7 @@ async def list_vehicles(user_id: str):
 
 
 @app.post("/vehicles", response_model=Asset, status_code=status.HTTP_201_CREATED)
-async def create_vehicle(vehicle: AssetCreate):
+async def create_vehicle(vehicle: AssetCreate, token: TokenData = Depends(require_token)):
     """Create a new vehicle."""
     # Force asset_type to 'vehicle'
     vehicle.asset_type = "vehicle"
@@ -182,7 +183,7 @@ async def create_vehicle(vehicle: AssetCreate):
 
 
 @app.get("/vehicles/{user_id}/{vehicle_id}", response_model=Asset)
-async def get_vehicle(user_id: str, vehicle_id: UUID):
+async def get_vehicle(user_id: str, vehicle_id: UUID, token: TokenData = Depends(require_token)):
     """Get a specific vehicle."""
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -202,7 +203,7 @@ async def get_vehicle(user_id: str, vehicle_id: UUID):
 # ============================================================================
 
 @app.get("/maintenance/{vehicle_id}", response_model=List[MaintenanceRecord])
-async def list_maintenance(vehicle_id: UUID):
+async def list_maintenance(vehicle_id: UUID, token: TokenData = Depends(require_token)):
     """List all maintenance records for a vehicle."""
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -216,7 +217,7 @@ async def list_maintenance(vehicle_id: UUID):
 
 
 @app.post("/maintenance", response_model=MaintenanceRecord, status_code=status.HTTP_201_CREATED)
-async def create_maintenance(maintenance: MaintenanceRecordCreate):
+async def create_maintenance(maintenance: MaintenanceRecordCreate, token: TokenData = Depends(require_token)):
     """Create a new maintenance record."""
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -257,7 +258,7 @@ async def create_maintenance(maintenance: MaintenanceRecordCreate):
 # ============================================================================
 
 @app.get("/fuel/{vehicle_id}", response_model=List[FuelRecord])
-async def list_fuel_records(vehicle_id: UUID, limit: Optional[int] = None):
+async def list_fuel_records(vehicle_id: UUID, limit: Optional[int] = None, token: TokenData = Depends(require_token)):
     """List fuel records for a vehicle."""
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -280,7 +281,7 @@ async def list_fuel_records(vehicle_id: UUID, limit: Optional[int] = None):
 
 
 @app.post("/fuel", response_model=FuelRecord, status_code=status.HTTP_201_CREATED)
-async def create_fuel_record(fuel: FuelRecordCreate):
+async def create_fuel_record(fuel: FuelRecordCreate, token: TokenData = Depends(require_token)):
     """Create a new fuel record."""
     if fuel.price_per_gallon is None and fuel.gallons > 0:
         fuel.price_per_gallon = fuel.cost / fuel.gallons
@@ -334,7 +335,7 @@ async def create_fuel_record(fuel: FuelRecordCreate):
 # ============================================================================
 
 @app.get("/stats/{vehicle_id}")
-async def get_vehicle_stats(vehicle_id: UUID):
+async def get_vehicle_stats(vehicle_id: UUID, token: TokenData = Depends(require_token)):
     """Get statistics for a vehicle."""
     with get_connection() as conn:
         cur = get_cursor(conn)
