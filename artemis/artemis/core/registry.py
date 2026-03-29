@@ -1,79 +1,185 @@
-"""Module registry for managing all Artemis modules."""
-from typing import Dict, List, Optional
-from artemis.core.module import BaseModule, ModuleStatus
+"""Module registry — discovers and tracks Artemis-compatible modules.
+
+On startup, polls each module's /artemis/manifest endpoint to build the
+registry. Optionally refreshes in the background on a timer.
+"""
+import asyncio
+import logging
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import httpx
+import yaml
+
+from artemis.core.settings import get_settings
+
+log = logging.getLogger("artemis.registry")
+
+
+class RegisteredModule:
+    """A live-registered Artemis module."""
+
+    def __init__(self, module_id: str, manifest_url: str, enabled: bool = True) -> None:
+        self.id = module_id
+        self.manifest_url = manifest_url
+        self.enabled = enabled
+        self.manifest: Optional[Dict[str, Any]] = None
+        self.healthy: bool = False
+        self.last_checked: Optional[datetime] = None
+        self.error: Optional[str] = None
+
+    @property
+    def api_base(self) -> Optional[str]:
+        """Base URL of the module API, derived from manifest or manifest_url."""
+        if self.manifest:
+            return self.manifest.get("module", {}).get("api_base")
+        # Fallback: strip /artemis/manifest from manifest_url
+        return self.manifest_url.replace("/artemis/manifest", "")
+
+    @property
+    def agent_tools(self) -> List[Dict[str, Any]]:
+        if not self.manifest:
+            return []
+        return self.manifest.get("capabilities", {}).get("agent_tools", [])
+
+    @property
+    def widgets(self) -> List[Dict[str, Any]]:
+        if not self.manifest:
+            return []
+        return self.manifest.get("capabilities", {}).get("dashboard_widgets", [])
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "manifest_url": self.manifest_url,
+            "enabled": self.enabled,
+            "healthy": self.healthy,
+            "last_checked": self.last_checked.isoformat() if self.last_checked else None,
+            "error": self.error,
+            "manifest": self.manifest,
+        }
 
 
 class ModuleRegistry:
-    """Central registry for all Artemis modules.
-    
-    Provides a single pane of glass for module management
-    and integration across the personal OS.
-    """
-    
+    """Registry of all Artemis platform modules."""
+
     def __init__(self) -> None:
-        """Initialize the module registry."""
-        self._modules: Dict[str, BaseModule] = {}
-    
-    def register(self, module: BaseModule) -> None:
-        """Register a module with the registry.
-        
-        Args:
-            module: Module to register
+        self._modules: Dict[str, RegisteredModule] = {}
+        self._refresh_task: Optional[asyncio.Task] = None
+
+    def _load_config(self) -> List[Dict[str, Any]]:
+        settings = get_settings()
+        config_path = Path(settings.modules_config)
+        if not config_path.is_absolute():
+            config_path = Path.cwd() / config_path
+        if not config_path.exists():
+            log.warning(f"modules.yaml not found at {config_path}")
+            return []
+        with open(config_path) as f:
+            data = yaml.safe_load(f)
+        return data.get("modules", [])
+
+    async def poll_module(self, module: RegisteredModule) -> None:
+        """Fetch and cache a module's manifest."""
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                r = await client.get(module.manifest_url)
+                r.raise_for_status()
+                module.manifest = r.json()
+                module.healthy = True
+                module.error = None
+                log.info(f"registered module: {module.id} ({module.manifest_url})")
+        except Exception as e:
+            module.healthy = False
+            module.error = str(e)
+            log.warning(f"module {module.id} unavailable: {e}")
+        finally:
+            module.last_checked = datetime.now(timezone.utc)
+
+    async def initialize(self) -> None:
+        """Load config and poll all modules on startup."""
+        entries = self._load_config()
+        for entry in entries:
+            if not entry.get("enabled", True):
+                continue
+            mod = RegisteredModule(
+                module_id=entry["id"],
+                manifest_url=entry["manifest_url"],
+                enabled=True,
+            )
+            self._modules[mod.id] = mod
+
+        # Poll all concurrently
+        if self._modules:
+            await asyncio.gather(*[self.poll_module(m) for m in self._modules.values()])
+
+        settings = get_settings()
+        if settings.registry_refresh_seconds > 0:
+            self._refresh_task = asyncio.create_task(self._refresh_loop())
+
+    async def _refresh_loop(self) -> None:
+        settings = get_settings()
+        while True:
+            await asyncio.sleep(settings.registry_refresh_seconds)
+            await asyncio.gather(*[self.poll_module(m) for m in self._modules.values()])
+
+    async def shutdown(self) -> None:
+        if self._refresh_task:
+            self._refresh_task.cancel()
+
+    def get(self, module_id: str) -> Optional[RegisteredModule]:
+        return self._modules.get(module_id)
+
+    def list_modules(self) -> List[RegisteredModule]:
+        return list(self._modules.values())
+
+    def healthy_modules(self) -> List[RegisteredModule]:
+        return [m for m in self._modules.values() if m.healthy]
+
+    def build_claude_tools(self) -> List[Dict[str, Any]]:
+        """Auto-generate Claude tool definitions from module manifests.
+
+        Tool name format: {module_id}__{tool_id}
+        (double underscore so we can reverse-parse it)
         """
-        self._modules[module.name] = module
-    
-    def unregister(self, name: str) -> None:
-        """Unregister a module from the registry.
-        
-        Args:
-            name: Name of the module to unregister
-        """
-        if name in self._modules:
-            del self._modules[name]
-    
-    def get(self, name: str) -> Optional[BaseModule]:
-        """Get a module by name.
-        
-        Args:
-            name: Name of the module
-            
-        Returns:
-            The module if found, None otherwise
-        """
-        return self._modules.get(name)
-    
-    def list_modules(self) -> List[str]:
-        """List all registered module names.
-        
-        Returns:
-            List of module names
-        """
-        return list(self._modules.keys())
-    
-    async def initialize_all(self) -> None:
-        """Initialize all registered modules."""
-        for module in self._modules.values():
-            if module.is_enabled:
-                await module.initialize()
-    
-    async def shutdown_all(self) -> None:
-        """Shutdown all registered modules."""
-        for module in self._modules.values():
-            if module.is_initialized:
-                await module.shutdown()
-    
-    async def get_all_status(self) -> List[ModuleStatus]:
-        """Get status of all registered modules.
-        
-        Returns:
-            List of module statuses
-        """
-        statuses = []
-        for module in self._modules.values():
-            status = await module.get_status()
-            statuses.append(status)
-        return statuses
+        tools = []
+        for mod in self.healthy_modules():
+            for tool in mod.agent_tools:
+                params = tool.get("parameters", {})
+                properties = {}
+                required = []
+                for param_name, param_def in params.items():
+                    properties[param_name] = {
+                        "type": param_def.get("type", "string"),
+                        "description": param_def.get("description", ""),
+                    }
+                    if param_def.get("required", False):
+                        required.append(param_name)
+
+                tools.append({
+                    "name": f"{mod.id.replace('-', '_')}__{tool['id']}",
+                    "description": f"[{mod.id}] {tool['description']}",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": properties,
+                        "required": required,
+                    },
+                })
+        return tools
+
+    def resolve_tool(self, tool_name: str) -> Optional[tuple[RegisteredModule, str]]:
+        """Parse tool_name back into (module, tool_id)."""
+        if "__" not in tool_name:
+            return None
+        module_key, tool_id = tool_name.split("__", 1)
+        # Convert underscores back to hyphens for lookup
+        module_id = module_key.replace("_", "-")
+        mod = self._modules.get(module_id)
+        if not mod:
+            return None
+        return mod, tool_id
 
 
-# Global module registry instance
+# Global registry instance
 registry = ModuleRegistry()

@@ -14,6 +14,14 @@ from .base import (
     TaskStatus,
     Priority,
     AssetCondition,
+    TaskCreate,
+    TaskUpdate,
+    GoalCreate,
+    GoalUpdate,
+    AssetCreate,
+    AssetUpdate,
+    MaintenanceRecordCreate,
+    MaintenanceRecordUpdate,
 )
 
 __all__ = [
@@ -26,4 +34,12 @@ __all__ = [
     "TaskStatus",
     "Priority",
     "AssetCondition",
+    "TaskCreate",
+    "TaskUpdate",
+    "GoalCreate",
+    "GoalUpdate",
+    "AssetCreate",
+    "AssetUpdate",
+    "MaintenanceRecordCreate",
+    "MaintenanceRecordUpdate",
 ]

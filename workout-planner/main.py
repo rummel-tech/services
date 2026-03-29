@@ -43,7 +43,8 @@ from core.database import init_pg_pool, close_pg_pool
 from models.ai_engine import AIFitnessEngine
 from routers import (
     goals, health, strength, swim, murph, readiness,
-    chat, auth, weekly_plans, daily_plans, meals, waitlist, workouts, healthcheck
+    chat, auth, weekly_plans, daily_plans, meals, waitlist, workouts, healthcheck,
+    artemis,
 )
 
 # Get settings
@@ -92,6 +93,7 @@ app.include_router(daily_plans.router)
 app.include_router(meals.router)
 app.include_router(waitlist.router)
 app.include_router(workouts.router)
+app.include_router(artemis.router)
 
 
 # Domain-specific request/response models

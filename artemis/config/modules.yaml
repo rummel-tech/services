@@ -1,0 +1,20 @@
+modules:
+  - id: workout-planner
+    manifest_url: http://localhost:8000/artemis/manifest
+    prod_manifest_url: https://api.rummeltech.com/workout-planner/artemis/manifest
+    enabled: true
+
+  - id: meal-planner
+    manifest_url: http://localhost:8010/artemis/manifest
+    prod_manifest_url: https://api.rummeltech.com/meal-planner/artemis/manifest
+    enabled: true
+
+  - id: home-manager
+    manifest_url: http://localhost:8020/artemis/manifest
+    prod_manifest_url: https://api.rummeltech.com/home-manager/artemis/manifest
+    enabled: true
+
+  - id: vehicle-manager
+    manifest_url: http://localhost:8030/artemis/manifest
+    prod_manifest_url: https://api.rummeltech.com/vehicle-manager/artemis/manifest
+    enabled: true

@@ -5,6 +5,7 @@ Refactored to use common models and database persistence.
 Supports cars, motorcycles, trucks, and other vehicles.
 """
 
+import json
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -28,6 +29,7 @@ from common.database import (
     get_connection, get_cursor, dict_from_row,
     init_db, close_db, adapt_query, is_sqlite, get_database_url
 )
+from routers import artemis as artemis_router
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -45,8 +47,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(artemis_router.router)
+
 # Check if using SQLite for query adaptation
 USE_SQLITE = is_sqlite(get_database_url())
+
+
+def _parse_row(row_dict: dict) -> dict:
+    """Parse JSON string fields from SQLite rows before Pydantic model construction."""
+    if USE_SQLITE and isinstance(row_dict.get("context"), str):
+        try:
+            row_dict["context"] = json.loads(row_dict["context"])
+        except (json.JSONDecodeError, ValueError):
+            row_dict["context"] = {}
+    return row_dict
 
 
 # Additional models for vehicle-specific features
@@ -145,7 +159,7 @@ async def create_vehicle(vehicle: AssetCreate):
                 vehicle_id, vehicle.user_id, vehicle.name, vehicle.description, vehicle.asset_type,
                 vehicle.category, vehicle.manufacturer, vehicle.model_number, vehicle.serial_number,
                 vehicle.vin, vehicle.purchase_date, vehicle.purchase_price, vehicle.condition.value,
-                vehicle.location, vehicle.notes, str(vehicle.context)
+                vehicle.location, vehicle.notes, json.dumps(vehicle.context or {})
             ))
             cur.execute("SELECT * FROM assets WHERE id = ?", (vehicle_id,))
         else:
@@ -164,7 +178,7 @@ async def create_vehicle(vehicle: AssetCreate):
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=500, detail="Failed to create vehicle")
-        return Asset(**dict_from_row(row, USE_SQLITE))
+        return Asset(**_parse_row(dict_from_row(row, USE_SQLITE)))
 
 
 @app.get("/vehicles/{user_id}/{vehicle_id}", response_model=Asset)
@@ -180,7 +194,7 @@ async def get_vehicle(user_id: str, vehicle_id: UUID):
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Vehicle not found")
-        return Asset(**dict_from_row(row, USE_SQLITE))
+        return Asset(**_parse_row(dict_from_row(row, USE_SQLITE)))
 
 
 # ============================================================================
@@ -198,7 +212,7 @@ async def list_maintenance(vehicle_id: UUID):
         )
         cur.execute(query, (str(vehicle_id),))
         rows = cur.fetchall()
-        return [MaintenanceRecord(**dict_from_row(row, USE_SQLITE)) for row in rows]
+        return [MaintenanceRecord(**_parse_row(dict_from_row(row, USE_SQLITE))) for row in rows]
 
 
 @app.post("/maintenance", response_model=MaintenanceRecord, status_code=status.HTTP_201_CREATED)
@@ -217,7 +231,7 @@ async def create_maintenance(maintenance: MaintenanceRecordCreate):
             cur.execute(query, (
                 record_id, maintenance.user_id, str(maintenance.asset_id), maintenance.maintenance_type,
                 maintenance.date, maintenance.cost, maintenance.description, maintenance.performed_by,
-                maintenance.next_due_date, maintenance.next_due_mileage, maintenance.notes, str(maintenance.context)
+                maintenance.next_due_date, maintenance.next_due_mileage, maintenance.notes, json.dumps(maintenance.context or {})
             ))
             cur.execute("SELECT * FROM maintenance_records WHERE id = ?", (record_id,))
         else:
@@ -235,7 +249,7 @@ async def create_maintenance(maintenance: MaintenanceRecordCreate):
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=500, detail="Failed to create maintenance record")
-        return MaintenanceRecord(**dict_from_row(row, USE_SQLITE))
+        return MaintenanceRecord(**_parse_row(dict_from_row(row, USE_SQLITE)))
 
 
 # ============================================================================
@@ -268,13 +282,25 @@ async def list_fuel_records(vehicle_id: UUID, limit: Optional[int] = None):
 @app.post("/fuel", response_model=FuelRecord, status_code=status.HTTP_201_CREATED)
 async def create_fuel_record(fuel: FuelRecordCreate):
     """Create a new fuel record."""
-    # Calculate MPG if not provided
-    mpg = None
     if fuel.price_per_gallon is None and fuel.gallons > 0:
         fuel.price_per_gallon = fuel.cost / fuel.gallons
 
     with get_connection() as conn:
         cur = get_cursor(conn)
+
+        # Calculate MPG from previous fill-up odometer reading
+        mpg = None
+        if fuel.mileage and fuel.gallons > 0:
+            prev_query = adapt_query(
+                "SELECT mileage FROM fuel_records WHERE asset_id = %s AND mileage < %s ORDER BY mileage DESC LIMIT 1",
+                USE_SQLITE
+            )
+            cur.execute(prev_query, (str(fuel.asset_id), fuel.mileage))
+            prev_row = cur.fetchone()
+            if prev_row:
+                prev_mileage = dict_from_row(prev_row, USE_SQLITE)["mileage"]
+                if fuel.mileage > prev_mileage:
+                    mpg = round((fuel.mileage - prev_mileage) / fuel.gallons, 1)
 
         if USE_SQLITE:
             import uuid

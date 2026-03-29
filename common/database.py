@@ -163,19 +163,18 @@ def get_cursor(conn, dict_cursor: bool = True):
 
     Args:
         conn: Database connection
-        dict_cursor: Return rows as dictionaries
+        dict_cursor: Return rows as dictionaries (only applies to PostgreSQL)
 
     Returns:
         Cursor object
     """
-    if hasattr(conn, 'cursor'):
-        # PostgreSQL
-        if dict_cursor:
-            return conn.cursor(cursor_factory=RealDictCursor)
+    import sqlite3
+    if isinstance(conn, sqlite3.Connection):
         return conn.cursor()
-    else:
-        # SQLite
-        return conn.cursor()
+    # PostgreSQL
+    if dict_cursor:
+        return conn.cursor(cursor_factory=RealDictCursor)
+    return conn.cursor()
 
 
 def adapt_query(query: str, use_sqlite: bool = False) -> str:

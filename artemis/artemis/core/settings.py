@@ -1,37 +1,47 @@
-"""Settings and configuration for Artemis service."""
+"""Settings for the Artemis platform service."""
+from functools import lru_cache
+from pathlib import Path
+from typing import List, Union
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class ServiceURLs(BaseSettings):
-    """Backend service URLs configuration."""
-
-    model_config = SettingsConfigDict(
-        env_prefix="SERVICE_",
-        env_file=".env",
-        env_file_encoding="utf-8"
-    )
-
-    home_manager_url: str = "http://localhost:8020"
-    vehicle_manager_url: str = "http://localhost:8030"
-    meal_planner_url: str = "http://localhost:8010"
-    workout_planner_url: str = "http://localhost:8040"
-
-
-class Settings(BaseSettings):
-    """Main application settings."""
-
+class ArtemisSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
-        env_file_encoding="utf-8"
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
     )
 
-    # Service URLs
-    services: ServiceURLs = ServiceURLs()
+    app_name: str = "artemis"
+    host: str = "0.0.0.0"
+    port: int = 8080
+    environment: str = "development"
+    log_level: str = "info"
+    debug: bool = False
 
-    # Default user ID for demo purposes
-    # In production, this would come from authentication
-    default_user_id: str = "demo_user"
+    # Auth service
+    artemis_auth_url: str = "http://localhost:8090"
+
+    # Module config file (relative to CWD or absolute)
+    modules_config: str = "config/modules.yaml"
+
+    # Registry refresh interval in seconds (0 = no background refresh)
+    registry_refresh_seconds: int = 300
+
+    # Claude API key for the AI agent
+    anthropic_api_key: str = ""
+    agent_model: str = "claude-sonnet-4-6"
+
+    cors_origins: Union[List[str], str] = [
+        "http://localhost:3000",
+        "http://localhost:8080",
+        "http://localhost:8081",
+        "http://127.0.0.1:8080",
+    ]
 
 
-# Global settings instance
-settings = Settings()
+@lru_cache()
+def get_settings() -> ArtemisSettings:
+    return ArtemisSettings()

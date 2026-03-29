@@ -27,6 +27,7 @@ from common.database import (
     get_connection, get_cursor, dict_from_row,
     init_db, close_db, adapt_query, is_sqlite, get_database_url
 )
+from routers import artemis as artemis_router
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -43,6 +44,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(artemis_router.router)
 
 # Check if using SQLite for query adaptation
 USE_SQLITE = is_sqlite(get_database_url())
