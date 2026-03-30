@@ -111,20 +111,9 @@ def decode_token(token: str) -> Optional[TokenData]:
     except JWTError:
         pass
 
-    # Try decoding as an Artemis platform token (unverified — in production,
-    # validate against Artemis auth service public key)
-    try:
-        payload = jwt.decode(token, options={'verify_signature': False})
-        if payload.get('iss') != ARTEMIS_ISSUER:
-            return None
-        user_id = payload.get('sub')
-        if user_id is None:
-            return None
-        return TokenData(
-            user_id=user_id,
-            email=payload.get('email'),
-            jti=payload.get('jti'),
-            exp=payload.get('exp'),
-        )
-    except JWTError:
-        return None
+    # Artemis platform token path — disabled until Artemis auth public key is
+    # available for proper signature verification. Accepting tokens with
+    # verify_signature=False is a complete auth bypass (any token with
+    # iss='artemis-auth' would be trusted). Re-enable once the Artemis auth
+    # service exposes GET /artemis/auth/public-key and we verify against it.
+    return None
