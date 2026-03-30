@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       service:
-        description: 'Service to deploy (all, artemis, meal-planner, home-manager, vehicle-manager, workout-planner, auth)'
+        description: 'Service to deploy'
         required: true
         default: 'all'
         type: choice
@@ -27,6 +27,14 @@ on:
           - vehicle-manager
           - workout-planner
           - auth
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
 
 permissions:
   id-token: write
@@ -34,7 +42,7 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  ECS_CLUSTER: app-cluster
+  ENVIRONMENT: ${{ github.event.inputs.environment || 'staging' }}
 
 jobs:
   detect-changes:
@@ -66,23 +74,23 @@ jobs:
               echo "auth=true" >> $GITHUB_OUTPUT
               echo "common=true" >> $GITHUB_OUTPUT
             else
-              echo "artemis=$([[ '$SERVICE' == 'artemis' ]] && echo true || echo false)" >> $GITHUB_OUTPUT
-              echo "meal-planner=$([[ '$SERVICE' == 'meal-planner' ]] && echo true || echo false)" >> $GITHUB_OUTPUT
-              echo "home-manager=$([[ '$SERVICE' == 'home-manager' ]] && echo true || echo false)" >> $GITHUB_OUTPUT
-              echo "vehicle-manager=$([[ '$SERVICE' == 'vehicle-manager' ]] && echo true || echo false)" >> $GITHUB_OUTPUT
-              echo "workout-planner=$([[ '$SERVICE' == 'workout-planner' ]] && echo true || echo false)" >> $GITHUB_OUTPUT
-              echo "auth=$([[ '$SERVICE' == 'auth' ]] && echo true || echo false)" >> $GITHUB_OUTPUT
-              echo "common=true" >> $GITHUB_OUTPUT
+              echo "artemis=$([[ "$SERVICE" == "artemis" ]] && echo true || echo false)" >> $GITHUB_OUTPUT
+              echo "meal-planner=$([[ "$SERVICE" == "meal-planner" ]] && echo true || echo false)" >> $GITHUB_OUTPUT
+              echo "home-manager=$([[ "$SERVICE" == "home-manager" ]] && echo true || echo false)" >> $GITHUB_OUTPUT
+              echo "vehicle-manager=$([[ "$SERVICE" == "vehicle-manager" ]] && echo true || echo false)" >> $GITHUB_OUTPUT
+              echo "workout-planner=$([[ "$SERVICE" == "workout-planner" ]] && echo true || echo false)" >> $GITHUB_OUTPUT
+              echo "auth=$([[ "$SERVICE" == "auth" ]] && echo true || echo false)" >> $GITHUB_OUTPUT
+              echo "common=false" >> $GITHUB_OUTPUT
             fi
           else
             CHANGED=$(git diff --name-only HEAD~1 HEAD)
-            echo "artemis=$(echo '$CHANGED' | grep -q 'artemis/' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "meal-planner=$(echo '$CHANGED' | grep -q 'meal-planner/' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "home-manager=$(echo '$CHANGED' | grep -q 'home-manager/' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "vehicle-manager=$(echo '$CHANGED' | grep -q 'vehicle-manager/' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "workout-planner=$(echo '$CHANGED' | grep -q 'workout-planner/' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "auth=$(echo '$CHANGED' | grep -q 'auth/' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "common=$(echo '$CHANGED' | grep -q 'common/' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "artemis=$(echo "$CHANGED" | grep -q 'artemis/' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "meal-planner=$(echo "$CHANGED" | grep -q 'meal-planner/' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "home-manager=$(echo "$CHANGED" | grep -q 'home-manager/' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "vehicle-manager=$(echo "$CHANGED" | grep -q 'vehicle-manager/' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "workout-planner=$(echo "$CHANGED" | grep -q 'workout-planner/' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "auth=$(echo "$CHANGED" | grep -q 'auth/' && echo true || echo false)" >> $GITHUB_OUTPUT
+            echo "common=$(echo "$CHANGED" | grep -q 'common/' && echo true || echo false)" >> $GITHUB_OUTPUT
           fi
 
   deploy-artemis:
@@ -92,7 +100,7 @@ jobs:
     env:
       ECR_REPOSITORY: artemis
       SERVICE_NAME: artemis
-      SERVICE_PORT: 8000
+      SERVICE_PORT: 8080
     steps:
       - uses: actions/checkout@v4
 
@@ -124,11 +132,14 @@ jobs:
       - name: Update ECS service (if exists)
         continue-on-error: true
         run: |
-          aws ecs update-service --cluster $ECS_CLUSTER --service ${SERVICE_NAME}-service --force-new-deployment --region $AWS_REGION || echo "Service not found, skipping update"
+          CLUSTER="${ENVIRONMENT}-cluster"
+          SVC="${ENVIRONMENT}-${SERVICE_NAME}-service"
+          aws ecs update-service --cluster $CLUSTER --service $SVC --force-new-deployment --region $AWS_REGION || \
+            echo "ECS service $SVC not found, skipping update"
 
       - name: Deployment summary
         run: |
-          echo "✅ $SERVICE_NAME deployed!"
+          echo "✅ $SERVICE_NAME deployed to $ENVIRONMENT!"
           echo "📦 Image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}"
 
   deploy-meal-planner:
@@ -170,11 +181,14 @@ jobs:
       - name: Update ECS service (if exists)
         continue-on-error: true
         run: |
-          aws ecs update-service --cluster $ECS_CLUSTER --service ${SERVICE_NAME}-service --force-new-deployment --region $AWS_REGION || echo "Service not found, skipping update"
+          CLUSTER="${ENVIRONMENT}-cluster"
+          SVC="${ENVIRONMENT}-${SERVICE_NAME}-service"
+          aws ecs update-service --cluster $CLUSTER --service $SVC --force-new-deployment --region $AWS_REGION || \
+            echo "ECS service $SVC not found, skipping update"
 
       - name: Deployment summary
         run: |
-          echo "✅ $SERVICE_NAME deployed!"
+          echo "✅ $SERVICE_NAME deployed to $ENVIRONMENT!"
           echo "📦 Image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}"
 
   deploy-home-manager:
@@ -216,11 +230,14 @@ jobs:
       - name: Update ECS service (if exists)
         continue-on-error: true
         run: |
-          aws ecs update-service --cluster $ECS_CLUSTER --service ${SERVICE_NAME}-service --force-new-deployment --region $AWS_REGION || echo "Service not found, skipping update"
+          CLUSTER="${ENVIRONMENT}-cluster"
+          SVC="${ENVIRONMENT}-${SERVICE_NAME}-service"
+          aws ecs update-service --cluster $CLUSTER --service $SVC --force-new-deployment --region $AWS_REGION || \
+            echo "ECS service $SVC not found, skipping update"
 
       - name: Deployment summary
         run: |
-          echo "✅ $SERVICE_NAME deployed!"
+          echo "✅ $SERVICE_NAME deployed to $ENVIRONMENT!"
           echo "📦 Image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}"
 
   deploy-vehicle-manager:
@@ -262,11 +279,14 @@ jobs:
       - name: Update ECS service (if exists)
         continue-on-error: true
         run: |
-          aws ecs update-service --cluster $ECS_CLUSTER --service ${SERVICE_NAME}-service --force-new-deployment --region $AWS_REGION || echo "Service not found, skipping update"
+          CLUSTER="${ENVIRONMENT}-cluster"
+          SVC="${ENVIRONMENT}-${SERVICE_NAME}-service"
+          aws ecs update-service --cluster $CLUSTER --service $SVC --force-new-deployment --region $AWS_REGION || \
+            echo "ECS service $SVC not found, skipping update"
 
       - name: Deployment summary
         run: |
-          echo "✅ $SERVICE_NAME deployed!"
+          echo "✅ $SERVICE_NAME deployed to $ENVIRONMENT!"
           echo "📦 Image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}"
 
   deploy-workout-planner:
@@ -308,11 +328,14 @@ jobs:
       - name: Update ECS service (if exists)
         continue-on-error: true
         run: |
-          aws ecs update-service --cluster $ECS_CLUSTER --service ${SERVICE_NAME}-service --force-new-deployment --region $AWS_REGION || echo "Service not found, skipping update"
+          CLUSTER="${ENVIRONMENT}-cluster"
+          SVC="${ENVIRONMENT}-${SERVICE_NAME}-service"
+          aws ecs update-service --cluster $CLUSTER --service $SVC --force-new-deployment --region $AWS_REGION || \
+            echo "ECS service $SVC not found, skipping update"
 
       - name: Deployment summary
         run: |
-          echo "✅ $SERVICE_NAME deployed!"
+          echo "✅ $SERVICE_NAME deployed to $ENVIRONMENT!"
           echo "📦 Image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}"
 
   deploy-auth:
@@ -354,9 +377,12 @@ jobs:
       - name: Update ECS service (if exists)
         continue-on-error: true
         run: |
-          aws ecs update-service --cluster $ECS_CLUSTER --service ${SERVICE_NAME}-service --force-new-deployment --region $AWS_REGION || echo "Service not found, skipping update"
+          CLUSTER="${ENVIRONMENT}-cluster"
+          SVC="${ENVIRONMENT}-${SERVICE_NAME}-service"
+          aws ecs update-service --cluster $CLUSTER --service $SVC --force-new-deployment --region $AWS_REGION || \
+            echo "ECS service $SVC not found, skipping update"
 
       - name: Deployment summary
         run: |
-          echo "✅ $SERVICE_NAME deployed!"
+          echo "✅ $SERVICE_NAME deployed to $ENVIRONMENT!"
           echo "📦 Image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}"

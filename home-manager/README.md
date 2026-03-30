@@ -1,101 +1,138 @@
 # Home Manager API
 
-Weekly home task management and goal tracking microservice.
+Household task, goal, and asset management microservice for the Artemis platform.
 
 ## Overview
 
-The Home Manager API provides endpoints for managing household tasks, organizing chores by category, and tracking home-related goals. It integrates with the common services package for standardized middleware, error handling, and health checks.
+Manages tasks (to-dos with status/priority), goals (targets with optional progress tracking), and assets (physical items with condition/location). Integrates with the Artemis platform manifest/summary system.
 
-## Tech Stack
-
-- **Framework**: FastAPI
-- **Server**: Uvicorn ASGI
-- **Validation**: Pydantic
-- **Port**: 8020
+**Port:** 8020
 
 ## Quick Start
 
 ```bash
-# From services directory
 cd home-manager
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Run the service
-uvicorn main:app --port 8020 --reload
+DATABASE_URL=sqlite:///./dev.db uvicorn main:app --port 8020 --reload
 ```
 
-## API Endpoints
+Without `ARTEMIS_AUTH_URL` set the service runs in dev fallback mode (no real auth check).
+
+## Authentication
+
+All endpoints except `/health` and `/ready` require a Bearer JWT issued by the auth service.
+
+```
+Authorization: Bearer <access_token>
+```
+
+## Endpoints
+
+### Tasks
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/tasks/weekly/{user_id}` | Get all weekly tasks |
-| GET | `/tasks/today/{user_id}` | Get today's tasks |
-| GET | `/tasks/category/{user_id}/{category}` | Get tasks by category |
-| GET | `/goals/{user_id}` | Get user goals |
-| GET | `/stats/{user_id}` | Get task/goal statistics |
+| GET | `/tasks/{user_id}` | List all tasks for user |
+| POST | `/tasks` | Create a task |
+| GET | `/tasks/{user_id}/{task_id}` | Get a specific task |
+| PUT | `/tasks/{user_id}/{task_id}` | Update a task |
+| DELETE | `/tasks/{user_id}/{task_id}` | Delete a task |
+
+### Goals
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/goals/{user_id}` | List all goals for user |
+| POST | `/goals` | Create a goal |
+| GET | `/goals/{user_id}/{goal_id}` | Get a specific goal |
+
+### Assets
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/assets/{user_id}` | List assets; optional `?asset_type=` filter |
+| POST | `/assets` | Create an asset |
+
+### Health
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
 | GET | `/health` | Health check |
 | GET | `/ready` | Readiness check |
-| GET | `/docs` | Swagger UI documentation |
+
+### Artemis Integration
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/artemis/manifest` | No | Module manifest for the platform shell |
+| GET | `/artemis/summary/{user_id}` | Bearer | Task/goal summary |
+| GET | `/artemis/data/...` | Bearer | Data endpoints for platform widgets |
 
 ## Data Models
 
 ### Task
-```json
-{
-  "id": "string",
-  "title": "Laundry",
-  "description": "optional description",
-  "day": "Monday",
-  "category": "chores",
-  "priority": "high|medium|low",
-  "completed": false,
-  "estimated_minutes": 60
-}
-```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | |
+| `user_id` | string | |
+| `title` | string | |
+| `description` | string | Optional |
+| `status` | string | `open`, `in_progress`, `done` |
+| `priority` | string | `low`, `medium`, `high` |
+| `category` | string | Optional |
+| `due_date` | date | Optional |
+| `estimated_minutes` | int | Optional |
+| `tags` | list | Optional |
 
 ### Goal
-```json
-{
-  "id": "string",
-  "title": "Organize Garage",
-  "description": "Sort through items...",
-  "category": "organizing",
-  "target_date": "2025-12-31",
-  "progress": 25,
-  "is_active": true
-}
-```
 
-## Task Categories
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | |
+| `user_id` | string | |
+| `title` | string | |
+| `description` | string | Optional |
+| `category` | string | Optional |
+| `target_value` | float | Optional |
+| `target_unit` | string | Optional |
+| `target_date` | date | Optional |
+| `notes` | string | Optional |
 
-- `chores` - Regular household chores
-- `cleaning` - Cleaning tasks
-- `errands` - Outside errands
-- `maintenance` - Home maintenance
-- `cooking` - Meal prep and cooking
-- `organizing` - Organization projects
-- `outdoor` - Yard and outdoor work
-- `planning` - Planning and scheduling
+### Asset
 
-## Configuration
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | |
+| `user_id` | string | |
+| `name` | string | |
+| `asset_type` | string | Freeform type label |
+| `category` | string | Optional |
+| `manufacturer` | string | Optional |
+| `model_number` | string | Optional |
+| `purchase_date` | date | Optional |
+| `purchase_price` | float | Optional |
+| `condition` | string | `new`, `good`, `fair`, `poor` |
+| `location` | string | Optional |
 
-Uses the shared `common` package for:
-- CORS middleware
-- Security headers
-- Request logging with correlation IDs
-- Standardized error handling
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | `sqlite:///./dev.db` | SQLite or PostgreSQL connection string |
+| `ARTEMIS_AUTH_URL` | — | Auth service base URL (e.g. `http://localhost:8090`). Omit for dev fallback mode. |
 
 ## Docker
 
 ```bash
-docker build -t home-manager .
-docker run -p 8020:8020 home-manager
+# From services/ root
+docker build -f home-manager/Dockerfile -t home-manager .
+docker run -p 8020:8020 -e DATABASE_URL=sqlite:///./dev.db home-manager
 ```
 
-## Related Services
+## Docker Compose
 
-- **Workout Planner API** (port 8000) - Fitness planning
-- **Meal Planner API** (port 8010) - Meal planning
-- **Vehicle Manager API** (port 8030) - Vehicle tracking
+```bash
+# From services/ root
+docker compose up home-manager
+```

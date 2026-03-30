@@ -1,148 +1,146 @@
 # Vehicle Manager API
 
-Vehicle maintenance, fuel, and mileage tracking microservice.
+Vehicle maintenance, fuel, and mileage tracking microservice for the Artemis platform.
 
 ## Overview
 
-The Vehicle Manager API provides comprehensive endpoints for managing vehicles, tracking maintenance schedules, logging fuel consumption, and analyzing vehicle statistics. It integrates with the common services package for standardized middleware, error handling, and health checks.
+Manages vehicles (stored as typed assets), maintenance records, and fuel records. Calculates MPG automatically on fuel entry and provides per-vehicle cost/usage statistics.
 
-## Tech Stack
-
-- **Framework**: FastAPI
-- **Server**: Uvicorn ASGI
-- **Validation**: Pydantic
-- **Port**: 8030
+**Port:** 8030
 
 ## Quick Start
 
 ```bash
-# From services directory
 cd vehicle-manager
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Run the service
-uvicorn main:app --port 8030 --reload
+DATABASE_URL=sqlite:///./dev.db uvicorn main:app --port 8030 --reload
 ```
 
-## API Endpoints
+Without `ARTEMIS_AUTH_URL` set the service runs in dev fallback mode (no real auth check).
+
+## Authentication
+
+All endpoints except `/health` and `/ready` require a Bearer JWT issued by the auth service.
+
+```
+Authorization: Bearer <access_token>
+```
+
+## Endpoints
 
 ### Vehicles
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/vehicles/{user_id}` | Get all user vehicles |
-| GET | `/vehicles/{user_id}/{vehicle_id}` | Get specific vehicle |
+| GET | `/vehicles/{user_id}` | List all vehicles for user |
+| POST | `/vehicles` | Create a vehicle |
+| GET | `/vehicles/{user_id}/{vehicle_id}` | Get a specific vehicle |
+| DELETE | `/vehicles/{user_id}/{vehicle_id}` | Delete a vehicle |
 
 ### Maintenance
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/maintenance/{vehicle_id}` | Get maintenance records |
-| GET | `/maintenance/{vehicle_id}/type/{service_type}` | Get records by type |
-| GET | `/schedule/{vehicle_id}` | Get maintenance schedule |
+| GET | `/maintenance/{vehicle_id}` | List maintenance records for vehicle |
+| POST | `/maintenance` | Create a maintenance record |
+| DELETE | `/maintenance/{vehicle_id}/{record_id}` | Delete a maintenance record |
 
 ### Fuel
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/fuel/{vehicle_id}` | Get fuel records |
+| GET | `/fuel/{vehicle_id}` | List fuel records; optional `?limit=` |
+| POST | `/fuel` | Create a fuel record (MPG calculated automatically) |
+| DELETE | `/fuel/{vehicle_id}/{record_id}` | Delete a fuel record |
 
 ### Statistics
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/stats/{vehicle_id}` | Get vehicle statistics |
-| GET | `/summary/{user_id}` | Get summary for all vehicles |
+| GET | `/stats/{vehicle_id}` | Fuel and maintenance cost/usage stats for a vehicle |
 
 ### Health
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/health` | Health check |
 | GET | `/ready` | Readiness check |
-| GET | `/docs` | Swagger UI documentation |
+
+### Artemis Integration
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/artemis/manifest` | No | Module manifest for the platform shell |
+| GET | `/artemis/summary/{user_id}` | Bearer | Vehicle fleet summary |
+| GET | `/artemis/data/...` | Bearer | Data endpoints for platform widgets |
 
 ## Data Models
 
-### Vehicle
-```json
-{
-  "id": "v1",
-  "make": "Toyota",
-  "model": "Camry",
-  "year": 2020,
-  "vin": "1HGBH41JXMN109186",
-  "license_plate": "ABC-1234",
-  "current_mileage": 45000,
-  "color": "Silver"
-}
-```
+### Vehicle (Asset)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | |
+| `user_id` | string | |
+| `name` | string | Display name (e.g. "2020 Camry") |
+| `manufacturer` | string | Make |
+| `model_number` | string | Model |
+| `serial_number` | string | Optional |
+| `vin` | string | Optional |
+| `purchase_date` | date | Optional |
+| `purchase_price` | float | Optional |
+| `condition` | string | `new`, `good`, `fair`, `poor` |
+| `location` | string | Optional |
 
 ### MaintenanceRecord
-```json
-{
-  "id": "m1",
-  "vehicle_id": "v1",
-  "date": "2025-10-15",
-  "type": "oil_change",
-  "mileage": 42000,
-  "cost": 45.99,
-  "description": "Synthetic oil change",
-  "next_due_mileage": 47000,
-  "next_due_date": "2026-04-15"
-}
-```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | |
+| `asset_id` | UUID | Vehicle ID |
+| `user_id` | string | |
+| `maintenance_type` | string | e.g. `oil_change`, `tire_rotation` |
+| `date` | datetime | |
+| `cost` | float | Optional |
+| `description` | string | Optional |
+| `performed_by` | string | Optional |
+| `next_due_date` | date | Optional |
+| `next_due_mileage` | int | Optional |
 
 ### FuelRecord
-```json
-{
-  "id": "f1",
-  "vehicle_id": "v1",
-  "date": "2025-11-18",
-  "mileage": 45000,
-  "gallons": 12.5,
-  "cost": 43.75,
-  "price_per_gallon": 3.50,
-  "fuel_type": "regular",
-  "mpg": 28.4
-}
-```
 
-### MaintenanceSchedule
-```json
-{
-  "id": "s1",
-  "vehicle_id": "v1",
-  "service_type": "Oil Change",
-  "interval_miles": 5000,
-  "last_service_mileage": 42000,
-  "next_due_mileage": 47000,
-  "status": "upcoming|due|overdue"
-}
-```
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | |
+| `asset_id` | UUID | Vehicle ID |
+| `user_id` | string | |
+| `date` | datetime | |
+| `mileage` | int | Odometer reading |
+| `gallons` | float | |
+| `cost` | float | Total fill-up cost |
+| `price_per_gallon` | float | Calculated if not provided |
+| `fuel_type` | string | `regular`, `premium`, `diesel`, etc. |
+| `mpg` | float | Calculated from previous fill-up |
+| `notes` | string | Optional |
 
-## Maintenance Types
+## Environment Variables
 
-- `oil_change` - Oil and filter changes
-- `tire_rotation` - Tire rotation and balancing
-- `brake_service` - Brake pad/rotor service
-- `inspection` - State/safety inspections
-- `air_filter` - Air filter replacement
-
-## Configuration
-
-Uses the shared `common` package for:
-- CORS middleware
-- Security headers
-- Request logging with correlation IDs
-- Standardized error handling
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | `sqlite:///./dev.db` | SQLite or PostgreSQL connection string |
+| `ARTEMIS_AUTH_URL` | — | Auth service base URL (e.g. `http://localhost:8090`). Omit for dev fallback mode. |
 
 ## Docker
 
 ```bash
-docker build -t vehicle-manager .
-docker run -p 8030:8030 vehicle-manager
+# From services/ root
+docker build -f vehicle-manager/Dockerfile -t vehicle-manager .
+docker run -p 8030:8030 -e DATABASE_URL=sqlite:///./dev.db vehicle-manager
 ```
 
-## Related Services
+## Docker Compose
 
-- **Workout Planner API** (port 8000) - Fitness planning
-- **Meal Planner API** (port 8010) - Meal planning
-- **Home Manager API** (port 8020) - Home task management
+```bash
+# From services/ root
+docker compose up vehicle-manager
+```

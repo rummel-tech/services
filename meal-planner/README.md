@@ -1,86 +1,107 @@
 # Meal Planner API
 
-Weekly meal planning and nutrition tracking microservice.
+Nutrition and meal tracking microservice for the Artemis platform.
 
 ## Overview
 
-The Meal Planner API provides endpoints for managing weekly meal plans with nutritional information. It integrates with the common services package for standardized middleware, error handling, and health checks.
+Tracks individual meal entries with nutritional data. Provides daily summaries, date-range queries, and a 7-day meal plan view. Integrates with the Artemis platform manifest/summary system.
 
-## Tech Stack
-
-- **Framework**: FastAPI
-- **Server**: Uvicorn ASGI
-- **Validation**: Pydantic
-- **Port**: 8010
+**Port:** 8010
 
 ## Quick Start
 
 ```bash
-# From services directory
 cd meal-planner
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Run the service
-uvicorn main:app --port 8010 --reload
+DATABASE_URL=sqlite:///./dev.db uvicorn main:app --port 8010 --reload
 ```
 
-## API Endpoints
+Without `ARTEMIS_AUTH_URL` set the service runs in dev fallback mode (no real auth check).
+
+## Authentication
+
+All endpoints except `/health`, `/ready`, and `/artemis/manifest` require a Bearer JWT issued by the auth service.
+
+```
+Authorization: Bearer <access_token>
+```
+
+## Endpoints
+
+### Meals
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/meals/weekly-plan/{user_id}` | Get weekly meal plan |
-| GET | `/meals/today/{user_id}` | Get today's meals |
+| GET | `/meals/{user_id}` | List meals; optional `?start_date=` and `?end_date=` |
+| POST | `/meals` | Create a meal entry |
+| GET | `/meals/today/{user_id}` | Daily meals and nutrition totals; optional `?meal_date=` |
+| GET | `/meals/weekly-plan/{user_id}` | 7-day meal plan; optional `?week_start=` |
+| DELETE | `/meals/{user_id}/{meal_id}` | Delete a meal entry |
+
+### Health
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
 | GET | `/health` | Health check |
 | GET | `/ready` | Readiness check |
-| GET | `/docs` | Swagger UI documentation |
+
+### Artemis Integration
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/artemis/manifest` | No | Module manifest for the platform shell |
+| GET | `/artemis/summary/{user_id}` | Bearer | Daily nutrition summary |
+| GET | `/artemis/data/daily_calories` | Bearer | Daily calorie data for charts |
 
 ## Data Models
 
 ### MealItem
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | UUID | |
+| `user_id` | string | |
+| `name` | string | Food name |
+| `meal_type` | string | `breakfast`, `lunch`, `dinner`, `snack` |
+| `date` | date | YYYY-MM-DD |
+| `calories` | int | Optional |
+| `protein_g` | int | Optional |
+| `carbs_g` | int | Optional |
+| `fat_g` | int | Optional |
+| `notes` | string | Optional |
+
+### DailyMeals (response from `/meals/today/{user_id}`)
+
 ```json
 {
-  "name": "string",
-  "calories": 350,
-  "protein_g": 20,
-  "carbs_g": 45,
-  "fat_g": 12
+  "date": "2026-03-29",
+  "meals": [...],
+  "total_calories": 1800,
+  "total_protein": 120,
+  "total_carbs": 200,
+  "total_fat": 60
 }
 ```
 
-### WeeklyMealPlan
-```json
-{
-  "user_id": "string",
-  "week_start": "2025-01-01",
-  "focus": "balanced",
-  "days": [
-    {
-      "day": "Monday",
-      "meals": [MealItem]
-    }
-  ]
-}
-```
+## Environment Variables
 
-## Configuration
-
-Uses the shared `common` package for:
-- CORS middleware
-- Security headers
-- Request logging with correlation IDs
-- Standardized error handling
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | `sqlite:///./dev.db` | SQLite or PostgreSQL connection string |
+| `ARTEMIS_AUTH_URL` | — | Auth service base URL (e.g. `http://localhost:8090`). Omit for dev fallback mode. |
+| `WORKOUT_PLANNER_URL` | — | Optional. Enables calories_burned cross-module lookup. |
 
 ## Docker
 
 ```bash
-docker build -t meal-planner .
-docker run -p 8010:8010 meal-planner
+# From services/ root
+docker build -f meal-planner/Dockerfile -t meal-planner .
+docker run -p 8010:8010 -e DATABASE_URL=sqlite:///./dev.db meal-planner
 ```
 
-## Related Services
+## Docker Compose
 
-- **Workout Planner API** (port 8000) - Fitness planning
-- **Home Manager API** (port 8020) - Home task management
-- **Vehicle Manager API** (port 8030) - Vehicle tracking
+```bash
+# From services/ root
+docker compose up meal-planner
+```
