@@ -227,6 +227,32 @@ async def delete_task(
 
 
 # ---------------------------------------------------------------------------
+# Tasks (list endpoint)
+# ---------------------------------------------------------------------------
+
+@router.get('/tasks', response_model=list[Task])
+async def list_tasks(
+    plan_id: Optional[str] = None,
+    current_user: TokenData = Depends(get_current_user),
+) -> list[Task]:
+    """List tasks for the current user, optionally filtered by plan_id."""
+    with get_db() as conn:
+        cur = get_cursor(conn)
+        if plan_id:
+            cur.execute(
+                'SELECT * FROM tasks WHERE user_id = ? AND plan_id = ? ORDER BY scheduled_time ASC NULLS LAST',
+                (current_user.user_id, plan_id),
+            )
+        else:
+            cur.execute(
+                'SELECT * FROM tasks WHERE user_id = ? ORDER BY scheduled_time ASC NULLS LAST',
+                (current_user.user_id,),
+            )
+        rows = cur.fetchall()
+    return [_row_to_task(dict(r)) for r in rows]
+
+
+# ---------------------------------------------------------------------------
 # Week Planner
 # ---------------------------------------------------------------------------
 

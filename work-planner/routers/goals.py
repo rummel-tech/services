@@ -134,6 +134,7 @@ async def delete_goal(
         cur.execute('SELECT id FROM goals WHERE id = ? AND user_id = ?', (goal_id, current_user.user_id))
         if not cur.fetchone():
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Goal not found')
+        cur.execute('DELETE FROM plans WHERE goal_id = ?', (goal_id,))
         cur.execute('DELETE FROM goals WHERE id = ?', (goal_id,))
         conn.commit()
     log.info('goal_deleted', extra={'goal_id': goal_id})
