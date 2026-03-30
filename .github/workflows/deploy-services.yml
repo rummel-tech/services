@@ -132,10 +132,10 @@ jobs:
       - name: Update ECS service (if exists)
         continue-on-error: true
         run: |
-          CLUSTER="${ENVIRONMENT}-cluster"
-          SVC="${ENVIRONMENT}-${SERVICE_NAME}-service"
+          CLUSTER="app-cluster"
+          SVC="${SERVICE_NAME}-service"
           aws ecs update-service --cluster $CLUSTER --service $SVC --force-new-deployment --region $AWS_REGION || \
-            echo "ECS service $SVC not found, skipping update"
+            echo "ECS service $SVC not found on app-cluster, skipping update"
 
       - name: Deployment summary
         run: |
@@ -181,10 +181,10 @@ jobs:
       - name: Update ECS service (if exists)
         continue-on-error: true
         run: |
-          CLUSTER="${ENVIRONMENT}-cluster"
-          SVC="${ENVIRONMENT}-${SERVICE_NAME}-service"
+          CLUSTER="app-cluster"
+          SVC="${SERVICE_NAME}-service"
           aws ecs update-service --cluster $CLUSTER --service $SVC --force-new-deployment --region $AWS_REGION || \
-            echo "ECS service $SVC not found, skipping update"
+            echo "ECS service $SVC not found on app-cluster, skipping update"
 
       - name: Deployment summary
         run: |
@@ -230,10 +230,10 @@ jobs:
       - name: Update ECS service (if exists)
         continue-on-error: true
         run: |
-          CLUSTER="${ENVIRONMENT}-cluster"
-          SVC="${ENVIRONMENT}-${SERVICE_NAME}-service"
+          CLUSTER="app-cluster"
+          SVC="${SERVICE_NAME}-service"
           aws ecs update-service --cluster $CLUSTER --service $SVC --force-new-deployment --region $AWS_REGION || \
-            echo "ECS service $SVC not found, skipping update"
+            echo "ECS service $SVC not found on app-cluster, skipping update"
 
       - name: Deployment summary
         run: |
@@ -279,10 +279,10 @@ jobs:
       - name: Update ECS service (if exists)
         continue-on-error: true
         run: |
-          CLUSTER="${ENVIRONMENT}-cluster"
-          SVC="${ENVIRONMENT}-${SERVICE_NAME}-service"
+          CLUSTER="app-cluster"
+          SVC="${SERVICE_NAME}-service"
           aws ecs update-service --cluster $CLUSTER --service $SVC --force-new-deployment --region $AWS_REGION || \
-            echo "ECS service $SVC not found, skipping update"
+            echo "ECS service $SVC not found on app-cluster, skipping update"
 
       - name: Deployment summary
         run: |
@@ -328,10 +328,10 @@ jobs:
       - name: Update ECS service (if exists)
         continue-on-error: true
         run: |
-          CLUSTER="${ENVIRONMENT}-cluster"
-          SVC="${ENVIRONMENT}-${SERVICE_NAME}-service"
+          CLUSTER="app-cluster"
+          SVC="${SERVICE_NAME}-service"
           aws ecs update-service --cluster $CLUSTER --service $SVC --force-new-deployment --region $AWS_REGION || \
-            echo "ECS service $SVC not found, skipping update"
+            echo "ECS service $SVC not found on app-cluster, skipping update"
 
       - name: Deployment summary
         run: |
@@ -377,10 +377,10 @@ jobs:
       - name: Update ECS service (if exists)
         continue-on-error: true
         run: |
-          CLUSTER="${ENVIRONMENT}-cluster"
-          SVC="${ENVIRONMENT}-${SERVICE_NAME}-service"
+          CLUSTER="app-cluster"
+          SVC="${SERVICE_NAME}-service"
           aws ecs update-service --cluster $CLUSTER --service $SVC --force-new-deployment --region $AWS_REGION || \
-            echo "ECS service $SVC not found, skipping update"
+            echo "ECS service $SVC not found on app-cluster, skipping update"
 
       - name: Deployment summary
         run: |
