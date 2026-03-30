@@ -102,5 +102,6 @@ compat but should not be used in new code.
 | meal-planner | 8010 |
 | home-manager | 8020 |
 | vehicle-manager | 8030 |
+| work-planner | 8040 |
 | artemis (platform) | 8080 |
 | auth | 8090 |
