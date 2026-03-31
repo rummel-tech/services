@@ -1,7 +1,7 @@
 [project]
-name = "vehicle-manager"
-version = "2.0.0"
-description = "Vehicle fleet management service with database persistence"
+name = "education-planner"
+version = "1.0.0"
+description = "Goal-oriented learning management with weekly activity planning"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115.0",
@@ -14,6 +14,12 @@ dependencies = [
     "httpx>=0.24.0",
     "prometheus-client>=0.17.0",
     "slowapi>=0.1.9",
+    "redis>=5.0.0",
+    "bcrypt>=5.0.0",
+    "passlib>=1.7.4",
+    "python-multipart>=0.0.20",
+    "email-validator>=2.0.0",
+    "alembic>=1.13.0",
 ]
 
 [project.optional-dependencies]

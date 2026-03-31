@@ -103,5 +103,6 @@ compat but should not be used in new code.
 | home-manager | 8020 |
 | vehicle-manager | 8030 |
 | work-planner | 8040 |
+| education-planner | 8050 |
 | artemis (platform) | 8080 |
 | auth | 8090 |

@@ -1,140 +1,89 @@
 """
 Meal Planner API - Nutrition and meal planning service.
-
-Refactored to use database persistence for meal tracking.
 """
 
 import logging
 import sys
-import time
 import uuid
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 from typing import List, Optional
+
+from dotenv import load_dotenv
 
 # Add common package to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.middleware.base import BaseHTTPMiddleware
 
+def _load_env() -> None:
+    import os
+    try:
+        load_dotenv(override=False)
+        custom_path = os.environ.get("SECRETS_ENV_PATH")
+        if custom_path:
+            secrets_env = Path(custom_path)
+        else:
+            repo_root = Path(__file__).resolve().parents[2]
+            secrets_env = repo_root / "config" / "secrets" / "local.env"
+        if secrets_env.exists():
+            load_dotenv(dotenv_path=secrets_env, override=True)
+    except Exception:
+        pass
+
+
+_load_env()
+
+from common.aws_secrets import inject_secrets_from_aws
+inject_secrets_from_aws()
+
+from fastapi import Depends, HTTPException, Query, status
+from pydantic import BaseModel
+
+from common import create_app, ServiceConfig
 from common.database import (
     get_connection, get_cursor, dict_from_row,
-    init_db, close_db, adapt_query, is_sqlite, get_database_url
+    init_db, close_db, adapt_query, is_sqlite, get_database_url,
 )
+from core.settings import get_settings
 from routers import artemis as artemis_router
 from routers.auth import TokenData, require_token
 
-from contextlib import asynccontextmanager
-
-import os
-
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
 logger = logging.getLogger(__name__)
 
+settings = get_settings()
 
-# ---------------------------------------------------------------------------
-# Lifespan
-# ---------------------------------------------------------------------------
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("Starting meal-planner API (db=%s)", get_database_url())
-    init_db()
-    yield
-    logger.info("Shutting down meal-planner API")
-    close_db()
-
-
-# ---------------------------------------------------------------------------
-# App
-# ---------------------------------------------------------------------------
-app = FastAPI(
+config = ServiceConfig(
+    name="meal-planner",
     title="Meal Planner API",
     version="2.0.0",
     description="Nutrition and meal planning service with database persistence",
-    root_path="/meal-planner",
-    lifespan=lifespan,
+    port=settings.port,
+    environment=settings.environment,
+    debug=settings.debug,
+    log_level=settings.log_level,
+    cors_origins=settings.cors_origins if isinstance(settings.cors_origins, list) else [settings.cors_origins],
+    enable_security_headers=True,
+    enable_request_logging=True,
+    enable_error_handlers=True,
+    enable_metrics=True,
+    enable_rate_limiting=(settings.environment == "production"),
+    redis_enabled=settings.redis_enabled,
+    redis_url=settings.redis_url,
+    on_startup=[init_db],
+    on_shutdown=[close_db],
 )
 
-
-# ---------------------------------------------------------------------------
-# Middleware
-# ---------------------------------------------------------------------------
-class ProductionMiddleware(BaseHTTPMiddleware):
-    """Adds request ID, response time, and security headers to every response."""
-
-    async def dispatch(self, request, call_next):
-        request_id = str(uuid.uuid4())
-        start = time.monotonic()
-
-        response = await call_next(request)
-
-        elapsed_ms = (time.monotonic() - start) * 1000
-        response.headers["x-request-id"] = request_id
-        response.headers["x-response-time-ms"] = f"{elapsed_ms:.1f}"
-        response.headers["x-content-type-options"] = "nosniff"
-        response.headers["x-frame-options"] = "DENY"
-        response.headers["x-xss-protection"] = "1; mode=block"
-        response.headers["referrer-policy"] = "strict-origin-when-cross-origin"
-        return response
-
-
-allowed_origins = [
-    o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",")
-]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-app.add_middleware(ProductionMiddleware)
-
+app = create_app(config)
 app.include_router(artemis_router.router)
 
-# Check if using SQLite for query adaptation
 USE_SQLITE = is_sqlite(get_database_url())
-
-
-# ---------------------------------------------------------------------------
-# Exception handlers
-# ---------------------------------------------------------------------------
-@app.exception_handler(StarletteHTTPException)
-async def http_exception_handler(request, exc):
-    logger.warning("HTTP %s %s → %d", request.method, request.url.path, exc.status_code)
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "timestamp": datetime.now(UTC).isoformat(),
-            "path": request.url.path,
-            "method": request.method,
-            "status_code": exc.status_code,
-            "correlation_id": str(uuid.uuid4()),
-            "error": {
-                "type": "http_exception",
-                "detail": exc.detail,
-            },
-        },
-    )
 
 
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
+
 class MealItem(BaseModel):
-    """Individual meal item."""
     id: uuid.UUID
     user_id: str
     name: str
@@ -148,7 +97,6 @@ class MealItem(BaseModel):
 
 
 class MealItemCreate(BaseModel):
-    """Request model for creating meals."""
     user_id: str
     name: str
     meal_type: str
@@ -161,7 +109,6 @@ class MealItemCreate(BaseModel):
 
 
 class DailyMeals(BaseModel):
-    """Daily meal summary."""
     user_id: str
     date: date
     day: str
@@ -173,41 +120,9 @@ class DailyMeals(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Health endpoints
-# ---------------------------------------------------------------------------
-@app.get("/")
-async def root():
-    """Service information."""
-    return {
-        "service": "meal-planner",
-        "status": "operational",
-        "version": "2.0.0",
-        "endpoints": [
-            "/health",
-            "/ready",
-            "/meals/{user_id}",
-            "/meals/today/{user_id}",
-            "/meals/weekly-plan/{user_id}",
-            "/artemis/manifest",
-        ],
-    }
-
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    return {"status": "ok", "service": "meal-planner"}
-
-
-@app.get("/ready")
-async def readiness_check():
-    """Readiness check endpoint."""
-    return {"status": "ready", "service": "meal-planner"}
-
-
-# ---------------------------------------------------------------------------
 # Meal endpoints
 # ---------------------------------------------------------------------------
+
 @app.get("/meals/{user_id}", response_model=List[MealItem])
 async def list_meals(
     user_id: str,
@@ -215,10 +130,8 @@ async def list_meals(
     end_date: Optional[date] = None,
     token: TokenData = Depends(require_token),
 ):
-    """List meals for a user, optionally filtered by date range."""
     with get_connection() as conn:
         cur = get_cursor(conn)
-
         if start_date and end_date:
             query = adapt_query(
                 "SELECT * FROM meals WHERE user_id = %s AND date BETWEEN %s AND %s ORDER BY date DESC, meal_type",
@@ -231,24 +144,21 @@ async def list_meals(
                 USE_SQLITE,
             )
             cur.execute(query, (user_id,))
-
         rows = cur.fetchall()
         return [MealItem(**dict_from_row(row, USE_SQLITE)) for row in rows]
 
 
 @app.post("/meals", response_model=MealItem, status_code=status.HTTP_201_CREATED)
 async def create_meal(meal: MealItemCreate, token: TokenData = Depends(require_token)):
-    """Create a new meal entry."""
     with get_connection() as conn:
         cur = get_cursor(conn)
-
         if USE_SQLITE:
             meal_id = str(uuid.uuid4())
             query = """INSERT INTO meals (id, user_id, name, meal_type, date, calories, protein_g, carbs_g, fat_g, notes)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
             cur.execute(query, (
                 meal_id, meal.user_id, meal.name, meal.meal_type, meal.date,
-                meal.calories, meal.protein_g, meal.carbs_g, meal.fat_g, meal.notes
+                meal.calories, meal.protein_g, meal.carbs_g, meal.fat_g, meal.notes,
             ))
             cur.execute("SELECT * FROM meals WHERE id = ?", (meal_id,))
         else:
@@ -257,9 +167,8 @@ async def create_meal(meal: MealItemCreate, token: TokenData = Depends(require_t
                        RETURNING *"""
             cur.execute(query, (
                 meal.user_id, meal.name, meal.meal_type, meal.date,
-                meal.calories, meal.protein_g, meal.carbs_g, meal.fat_g, meal.notes
+                meal.calories, meal.protein_g, meal.carbs_g, meal.fat_g, meal.notes,
             ))
-
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=500, detail="Failed to create meal")
@@ -273,9 +182,7 @@ async def get_todays_meals(
     meal_date: Optional[date] = Query(None, alias="date"),
     token: TokenData = Depends(require_token),
 ):
-    """Get all meals for today (or specified date)."""
     target_date = meal_date or date.today()
-
     with get_connection() as conn:
         cur = get_cursor(conn)
         query = adapt_query(
@@ -285,7 +192,6 @@ async def get_todays_meals(
         cur.execute(query, (user_id, target_date.isoformat()))
         rows = cur.fetchall()
         meals = [MealItem(**dict_from_row(row, USE_SQLITE)) for row in rows]
-
         return DailyMeals(
             user_id=user_id,
             date=target_date,
@@ -304,10 +210,9 @@ async def get_weekly_meal_plan(
     week_start: Optional[date] = None,
     token: TokenData = Depends(require_token),
 ):
-    """Get meal plan for the week (defaults to Monday of current week)."""
     if week_start is None:
         today = date.today()
-        week_start = today - timedelta(days=today.weekday())  # Monday
+        week_start = today - timedelta(days=today.weekday())
 
     daily_plans = []
     for day_offset in range(7):
@@ -330,7 +235,6 @@ async def get_weekly_meal_plan(
 
 @app.delete("/meals/{user_id}/{meal_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_meal(user_id: str, meal_id: uuid.UUID, token: TokenData = Depends(require_token)):
-    """Delete a meal entry."""
     with get_connection() as conn:
         cur = get_cursor(conn)
         query = adapt_query("DELETE FROM meals WHERE id = %s AND user_id = %s", USE_SQLITE)
@@ -342,4 +246,4 @@ async def delete_meal(user_id: str, meal_id: uuid.UUID, token: TokenData = Depen
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8010)
+    uvicorn.run(app, host="0.0.0.0", port=settings.port)
