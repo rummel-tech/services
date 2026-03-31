@@ -18,3 +18,13 @@ modules:
     manifest_url: http://localhost:8030/artemis/manifest
     prod_manifest_url: https://api.rummeltech.com/vehicle-manager/artemis/manifest
     enabled: true
+
+  - id: work-planner
+    manifest_url: http://localhost:8040/artemis/manifest
+    prod_manifest_url: https://api.rummeltech.com/work-planner/artemis/manifest
+    enabled: true
+
+  - id: education-planner
+    manifest_url: http://localhost:8050/artemis/manifest
+    prod_manifest_url: https://api.rummeltech.com/education-planner/artemis/manifest
+    enabled: true
