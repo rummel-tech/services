@@ -1,7 +1,7 @@
 """Health check endpoints."""
 
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, status
 
@@ -35,7 +35,7 @@ def _check_database() -> dict:
             'healthy': False,
             'type': db_type,
             'latency_ms': None,
-            'error': str(exc),
+            'error': 'database check failed',
         }
 
 
@@ -44,7 +44,7 @@ async def liveness() -> dict:
     """Liveness probe — returns 200 if the process is running."""
     return {
         'status': 'ok',
-        'timestamp': datetime.utcnow().isoformat(),
+        'timestamp': datetime.now(timezone.utc).isoformat(),
         'service': 'education-planner',
         'database': 'sqlite' if USE_SQLITE else 'postgresql',
     }
@@ -57,11 +57,11 @@ async def readiness() -> dict:
     if not db_info['healthy']:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={'status': 'degraded', 'database': db_info},
+            detail={'status': 'degraded', 'database': {'healthy': False, 'type': db_info['type']}},
         )
     return {
         'status': 'ok',
-        'timestamp': datetime.utcnow().isoformat(),
+        'timestamp': datetime.now(timezone.utc).isoformat(),
         'service': 'education-planner',
         'database': db_info,
     }
