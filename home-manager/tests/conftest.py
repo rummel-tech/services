@@ -81,7 +81,8 @@ def _setup_db(path: str) -> None:
 @pytest.fixture(scope="module")
 def client():
     """Test client with SQLite DB and mocked auth."""
-    tmp = tempfile.mktemp(suffix=".db")
+    fd, tmp = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
     _setup_db(tmp)
     os.environ["DATABASE_URL"] = f"sqlite:///{tmp}"
 
