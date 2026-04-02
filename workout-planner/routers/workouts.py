@@ -12,6 +12,12 @@ log = get_logger("api.workouts")
 
 router = APIRouter(prefix="/workouts", tags=["workouts"])
 
+# Explicit allowlist of columns that may be set via the UPDATE endpoint.
+# Prevents SQL injection in the dynamically constructed SET clause.
+_WORKOUT_UPDATABLE_COLS: frozenset = frozenset({
+    "name", "type", "warmup", "main", "cooldown", "notes", "status", "updated_at",
+})
+
 def adapt_query(query: str, params: tuple):
     """Adapt PostgreSQL query to SQLite if needed"""
     if USE_SQLITE:
@@ -155,6 +161,11 @@ def update_workout(workout_id: int, workout: WorkoutUpdate, current_user: TokenD
 
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
+
+    # Validate column names against the explicit allowlist to prevent SQL injection.
+    invalid_cols = set(updates) - _WORKOUT_UPDATABLE_COLS
+    if invalid_cols:
+        raise HTTPException(status_code=400, detail=f"Invalid fields: {sorted(invalid_cols)}")
 
     # Add updated_at
     updates['updated_at'] = 'CURRENT_TIMESTAMP'

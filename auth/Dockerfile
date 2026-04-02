@@ -15,6 +15,9 @@ COPY auth/ auth/
 
 ENV PYTHONPATH=/app
 
+RUN useradd -u 1001 -m appuser && chown -R appuser /app
+USER appuser
+
 EXPOSE 8090
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

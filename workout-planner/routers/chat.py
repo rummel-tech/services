@@ -264,8 +264,8 @@ async def get_messages(session_id: int, user_id: str, limit: int = 50):
             if msg_dict.get("metadata"):
                 try:
                     msg_dict["metadata"] = json.loads(msg_dict["metadata"])
-                except:
-                    pass
+                except Exception:
+                    log.warning("chat_metadata_parse_failed", extra={"session_id": session_id})
             result.append(msg_dict)
         
         log.info("chat_messages_list", extra={"session_id": session_id, "user_id": user_id, "count": len(result)})

@@ -15,6 +15,9 @@ COPY artemis/ artemis/
 # Set Python path to include common and artemis
 ENV PYTHONPATH=/app:/app/artemis:$PYTHONPATH
 
+RUN useradd -u 1001 -m appuser && chown -R appuser /app
+USER appuser
+
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

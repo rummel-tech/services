@@ -21,6 +21,15 @@ def _auth_bypass() -> bool:
 
 router = APIRouter(prefix="/goals", tags=["goals"])
 
+# Explicit allowlists of columns that may be set via UPDATE endpoints.
+# Prevents SQL injection in the dynamically constructed SET clause.
+_GOAL_UPDATABLE_COLS: frozenset = frozenset({
+    "goal_type", "target_value", "target_unit", "target_date", "notes", "is_active",
+})
+_PLAN_UPDATABLE_COLS: frozenset = frozenset({
+    "name", "description", "status",
+})
+
 def adapt_query(query: str, params: tuple):
     """Adapt PostgreSQL query to SQLite if needed"""
     if USE_SQLITE:
@@ -128,6 +137,9 @@ def update_goal(goal_id: int, goal: GoalUpdate):
     updates = {k: v for k, v in goal.dict().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
+    invalid_cols = set(updates) - _GOAL_UPDATABLE_COLS
+    if invalid_cols:
+        raise HTTPException(status_code=400, detail=f"Invalid fields: {sorted(invalid_cols)}")
     placeholder = "?" if USE_SQLITE else "%s"
     set_clause = ", ".join([f"{k} = {placeholder}" for k in updates.keys()])
     values = list(updates.values()) + [goal_id]
@@ -207,7 +219,11 @@ def update_plan(plan_id: int, plan: PlanUpdate):
     updates = {k: v for k, v in plan.dict().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
-    
+
+    invalid_cols = set(updates) - _PLAN_UPDATABLE_COLS
+    if invalid_cols:
+        raise HTTPException(status_code=400, detail=f"Invalid fields: {sorted(invalid_cols)}")
+
     placeholder = "?" if USE_SQLITE else "%s"
     set_clause = ", ".join([f"{k} = {placeholder}" for k in updates.keys()])
     values = list(updates.values()) + [plan_id]

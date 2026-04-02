@@ -16,6 +16,9 @@ COPY meal-planner/ .
 # Set Python path to include common
 ENV PYTHONPATH=/app:$PYTHONPATH
 
+RUN useradd -u 1001 -m appuser && chown -R appuser /app
+USER appuser
+
 EXPOSE 8010
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
