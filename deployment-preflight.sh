@@ -135,7 +135,7 @@ check_port() {
     fi
 }
 
-check_port "artemis" "8000"
+check_port "artemis" "8080"
 check_port "home-manager" "8020"
 check_port "vehicle-manager" "8030"
 check_port "meal-planner" "8010"

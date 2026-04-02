@@ -1,0 +1,221 @@
+name: CI - Test & Lint
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'common/**'
+      - 'auth/**'
+      - 'artemis/**'
+      - 'meal-planner/**'
+      - 'home-manager/**'
+      - 'vehicle-manager/**'
+      - 'workout-planner/**'
+      - 'work-planner/**'
+      - 'education-planner/**'
+      - 'content-planner/**'
+  push:
+    branches: [main, develop]
+    paths:
+      - 'common/**'
+      - 'auth/**'
+      - 'artemis/**'
+      - 'meal-planner/**'
+      - 'home-manager/**'
+      - 'vehicle-manager/**'
+      - 'workout-planner/**'
+      - 'work-planner/**'
+      - 'education-planner/**'
+      - 'content-planner/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.set-matrix.outputs.services }}
+      common: ${{ steps.set-matrix.outputs.common }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine changed services
+        id: set-matrix
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo 'services=["auth","artemis","meal-planner","home-manager","vehicle-manager","workout-planner","work-planner","education-planner","content-planner"]' >> $GITHUB_OUTPUT
+            echo "common=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE=${{ github.event.pull_request.base.sha }}
+          else
+            BASE=${{ github.event.before }}
+          fi
+
+          CHANGED=$(git diff --name-only $BASE ${{ github.sha }} 2>/dev/null || git diff --name-only HEAD~1 HEAD)
+          COMMON_CHANGED=$(echo "$CHANGED" | grep -q '^common/' && echo true || echo false)
+          echo "common=${COMMON_CHANGED}" >> $GITHUB_OUTPUT
+
+          SERVICES=()
+          for svc in auth artemis meal-planner home-manager vehicle-manager workout-planner work-planner education-planner content-planner; do
+            if echo "$CHANGED" | grep -q "^${svc}/" || [[ "$COMMON_CHANGED" == "true" ]]; then
+              SERVICES+=("\"${svc}\"")
+            fi
+          done
+
+          if [ ${#SERVICES[@]} -eq 0 ]; then
+            echo "services=[]" >> $GITHUB_OUTPUT
+          else
+            JOINED=$(IFS=,; echo "${SERVICES[*]}")
+            echo "services=[${JOINED}]" >> $GITHUB_OUTPUT
+          fi
+
+  lint:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install linting tools
+        run: pip install flake8 black isort
+
+      - name: Flake8 (syntax errors)
+        working-directory: ${{ matrix.service }}
+        run: |
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics \
+            --exclude=.venv,__pycache__,.pytest_cache,migrations
+
+      - name: Black (formatting)
+        working-directory: ${{ matrix.service }}
+        run: black --check --diff .
+
+      - name: isort (import sorting)
+        working-directory: ${{ matrix.service }}
+        run: isort --check-only --diff .
+
+  test:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: '${{ matrix.service }}/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ./common
+          pip install -r ${{ matrix.service }}/requirements.txt
+          pip install pytest pytest-cov pytest-asyncio httpx
+
+      - name: Create test environment
+        working-directory: ${{ matrix.service }}
+        run: |
+          cat > .env << 'ENVEOF'
+          ENVIRONMENT=test
+          LOG_LEVEL=warning
+          DATABASE_URL=postgresql://test:test@localhost:5432/test_db
+          ENVEOF
+
+      - name: Run tests
+        working-directory: ${{ matrix.service }}
+        run: |
+          if [ -d "tests" ]; then
+            pytest tests/ \
+              --cov=. \
+              --cov-report=term-missing \
+              --cov-report=xml \
+              -v \
+              --tb=short
+          else
+            echo "::warning::No tests/ directory found for ${{ matrix.service }}"
+          fi
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-${{ matrix.service }}
+          path: ${{ matrix.service }}/coverage.xml
+          retention-days: 30
+          if-no-files-found: ignore
+
+  docker-build:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          if [ -f "${{ matrix.service }}/Dockerfile" ]; then
+            docker build -f ${{ matrix.service }}/Dockerfile -t ${{ matrix.service }}:test .
+          else
+            echo "::warning::No Dockerfile for ${{ matrix.service }}"
+          fi
+
+  ci-status:
+    needs: [lint, test, docker-build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          if [[ "${{ needs.lint.result }}" == "failure" ]] || \
+             [[ "${{ needs.test.result }}" == "failure" ]] || \
+             [[ "${{ needs.docker-build.result }}" == "failure" ]]; then
+            echo "::error::CI checks failed"
+            exit 1
+          fi
+          echo "All CI checks passed"

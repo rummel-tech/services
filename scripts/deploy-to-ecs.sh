@@ -14,6 +14,7 @@ ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
 # Service configurations
 declare -A SERVICE_PORTS=(
+    ["artemis"]=8080
     ["meal-planner"]=8010
     ["home-manager"]=8020
     ["vehicle-manager"]=8030

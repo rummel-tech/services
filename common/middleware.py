@@ -1,22 +1,21 @@
 """
 Standard middleware for all services.
+
+Uses the shared correlation_id_var from logging_config so that both
+create_app() and add_standard_middleware() write to the same context.
 """
 
 import time
-import uuid
-from typing import Optional
-from contextvars import ContextVar
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-# Context variable for request correlation ID
-correlation_id_var: ContextVar[str] = ContextVar("correlation_id", default="")
+from .logging_config import correlation_id_var, set_correlation_id
 
 
 def get_correlation_id() -> str:
     """Get the current request's correlation ID."""
-    return correlation_id_var.get()
+    return correlation_id_var.get() or ""
 
 
 def add_standard_middleware(
@@ -56,9 +55,7 @@ def add_standard_middleware(
     if enable_request_logging:
         @app.middleware("http")
         async def request_logging_middleware(request: Request, call_next):
-            # Generate or extract correlation ID
-            cid = request.headers.get("X-Request-ID", str(uuid.uuid4()))
-            correlation_id_var.set(cid)
+            cid = set_correlation_id(request.headers.get("X-Request-ID"))
 
             start_time = time.time()
 

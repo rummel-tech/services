@@ -36,7 +36,7 @@ _load_env()
 from common.aws_secrets import inject_secrets_from_aws
 inject_secrets_from_aws()
 
-from fastapi import Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
 from common import create_app, ServiceConfig
@@ -74,7 +74,7 @@ config = ServiceConfig(
 )
 
 app = create_app(config)
-app.include_router(artemis_router.router)
+router = APIRouter()
 
 USE_SQLITE = is_sqlite(get_database_url())
 
@@ -123,7 +123,7 @@ class DailyMeals(BaseModel):
 # Meal endpoints
 # ---------------------------------------------------------------------------
 
-@app.get("/meals/{user_id}", response_model=List[MealItem])
+@router.get("/meals/{user_id}", response_model=List[MealItem])
 async def list_meals(
     user_id: str,
     start_date: Optional[date] = None,
@@ -148,7 +148,7 @@ async def list_meals(
         return [MealItem(**dict_from_row(row, USE_SQLITE)) for row in rows]
 
 
-@app.post("/meals", response_model=MealItem, status_code=status.HTTP_201_CREATED)
+@router.post("/meals", response_model=MealItem, status_code=status.HTTP_201_CREATED)
 async def create_meal(meal: MealItemCreate, token: TokenData = Depends(require_token)):
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -176,7 +176,7 @@ async def create_meal(meal: MealItemCreate, token: TokenData = Depends(require_t
         return MealItem(**dict_from_row(row, USE_SQLITE))
 
 
-@app.get("/meals/today/{user_id}", response_model=DailyMeals)
+@router.get("/meals/today/{user_id}", response_model=DailyMeals)
 async def get_todays_meals(
     user_id: str,
     meal_date: Optional[date] = Query(None, alias="date"),
@@ -204,7 +204,7 @@ async def get_todays_meals(
         )
 
 
-@app.get("/meals/weekly-plan/{user_id}")
+@router.get("/meals/weekly-plan/{user_id}")
 async def get_weekly_meal_plan(
     user_id: str,
     week_start: Optional[date] = None,
@@ -233,7 +233,7 @@ async def get_weekly_meal_plan(
     }
 
 
-@app.delete("/meals/{user_id}/{meal_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/meals/{user_id}/{meal_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_meal(user_id: str, meal_id: uuid.UUID, token: TokenData = Depends(require_token)):
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -243,6 +243,9 @@ async def delete_meal(user_id: str, meal_id: uuid.UUID, token: TokenData = Depen
             raise HTTPException(status_code=404, detail="Meal not found")
         logger.info("Deleted meal %s for user %s", meal_id, user_id)
 
+
+app.include_router(artemis_router.router, prefix=config.api_prefix)
+app.include_router(router, prefix=config.api_prefix)
 
 if __name__ == "__main__":
     import uvicorn

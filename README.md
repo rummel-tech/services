@@ -1,132 +1,129 @@
 # Services
 
-Centralized backend services for the Rummel app ecosystem.
+Backend microservices for the Rummel/Artemis platform. Each service is an
+independently deployable FastAPI application that also implements the
+**Artemis Module Contract** — exposing `/artemis/manifest`, widget, agent
+tool, and cross-module data endpoints so the Artemis platform can discover
+and orchestrate them.
+
+## Architecture
+
+```
+                      ┌──────────────┐
+                      │  Artemis     │ ← platform (discovery, agent, dashboard)
+                      │  :8080       │
+                      └─────┬────────┘
+                            │ polls /artemis/manifest
+        ┌───────────────────┼───────────────────────────┐
+        ▼                   ▼                           ▼
+  ┌────────────┐   ┌──────────────┐            ┌───────────────┐
+  │ workout-   │   │ meal-planner │  ...       │ content-      │
+  │ planner    │   │ :8010        │            │ planner :8060 │
+  │ :8000      │   └──────────────┘            └───────────────┘
+  └────────────┘
+```
+
+Every module is a **standalone application** — it can run, develop, and test
+independently. Artemis integration is additive via `routers/artemis.py`.
 
 ## Services
 
-| Service | Port | Description |
-|---------|------|-------------|
-| workout-planner | 8000 | AI-powered fitness coaching API |
-| meal-planner | 8010 | Weekly meal planning API |
-| home-manager | 8020 | Home task management API |
-| vehicle-manager | 8030 | Vehicle maintenance tracking API |
+| Service            | Port | Standalone Auth | Description |
+|--------------------|------|-----------------|-------------|
+| artemis            | 8080 | —               | Platform hub: module registry, dashboard, AI agent |
+| auth               | 8090 | —               | Central RS256 JWT auth with Google OAuth |
+| workout-planner    | 8000 | HS256           | AI-powered fitness coaching |
+| meal-planner       | 8010 | —               | Nutrition tracking and meal planning |
+| home-manager       | 8020 | —               | Property and household task management |
+| vehicle-manager    | 8030 | —               | Vehicle fleet, maintenance, and fuel tracking |
+| work-planner       | 8040 | HS256           | Task management, project tracking, work sessions |
+| education-planner  | 8050 | HS256           | Goal-oriented learning management |
+| content-planner    | 8060 | HS256           | Audio-first content consumption and queue management |
+
+## Shared Infrastructure
+
+### `common/` — Shared Python Library
+
+All services share a common library providing production-ready features:
+
+| Module            | What it provides |
+|-------------------|-----------------|
+| `app_factory.py`  | FastAPI app factory with health endpoints, metrics, CORS, security headers |
+| `artemis_auth.py` | Dual-token auth (standalone HS256 + Artemis RS256) for module endpoints |
+| `database.py`     | SQLite/PostgreSQL connection pooling with dialect abstraction |
+| `middleware.py`    | Correlation IDs, request logging, response timing |
+| `settings.py`     | Pydantic-based settings with env/secrets integration |
+| `cache.py`        | Redis caching with graceful fallback |
+| `aws_secrets.py`  | AWS Secrets Manager integration |
+| `metrics.py`      | Prometheus metrics collection |
+
+### Artemis Module Contract
+
+Every service implements the contract via `routers/artemis.py`:
+
+| Endpoint | Auth | Purpose |
+|----------|------|---------|
+| `GET /artemis/manifest` | None | Capability declaration (polled by platform) |
+| `GET /artemis/widgets/{id}` | Required | Live widget data for Artemis dashboard |
+| `POST /artemis/agent/{tool_id}` | Required | AI agent tool execution |
+| `GET /artemis/data/{data_id}` | Required | Cross-module data sharing |
+| `GET /artemis/summary` | Required | Natural language summary for AI briefings |
+| `GET /artemis/calendar` | Required | Calendar events (next 14 days) |
+
+Auth on protected endpoints accepts both the service's standalone JWT **and**
+Artemis platform tokens (`iss: artemis-auth`, RS256). This is handled by
+`common.artemis_auth.create_artemis_token_dependency()`.
 
 ## Quick Start
-
-### Running a Single Service
 
 ```bash
 cd <service-name>
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pip install -e ../common  # Install shared package
+pip install -e ../common
 uvicorn main:app --reload --port <PORT>
-```
-
-### Running All Services
-
-```bash
-# From APP_DEV root
-./start-all-apps.sh
-```
-
-## Structure
-
-```
-services/
-├── common/                           # Shared utilities package
-│   ├── __init__.py
-│   ├── app_factory.py                # FastAPI app factory
-│   ├── middleware.py                 # Standard middleware (CORS, security, logging)
-│   ├── utils.py                      # Shared utilities (date parsing, etc.)
-│   └── pyproject.toml                # Package configuration
-├── workout-planner/                  # FastAPI - Main fitness coaching API
-│   ├── main.py
-│   ├── routers/                      # Modular API endpoints
-│   ├── database.py                   # SQLite/PostgreSQL abstraction
-│   └── tests/                        # Pytest suite
-├── workout-planner-ai-engine/        # AI workout planning logic
-├── workout-planner-integration-layer/ # Backend integration utilities
-├── meal-planner/                     # FastAPI - Meal planning
-│   └── main.py
-├── home-manager/                     # FastAPI - Task management
-│   └── main.py
-└── vehicle-manager/                  # FastAPI - Vehicle tracking
-    └── main.py
-```
-
-## Common Package
-
-The `common/` package provides shared functionality for all services:
-
-### App Factory
-
-```python
-from common import create_app, ServiceConfig
-
-config = ServiceConfig(
-    name="my-service",
-    title="My Service API",
-    version="0.1.0",
-    port=8000,
-)
-
-app = create_app(config)
-```
-
-This automatically adds:
-- Standard health endpoints (`/health`, `/ready`, `/`)
-- CORS middleware
-- Security headers
-- Request logging with correlation IDs
-- Response time headers
-
-### Utilities
-
-```python
-from common import day_name_from_date, parse_date
-
-# Get day name from date string
-day = day_name_from_date("2025-11-30")  # "Sunday"
-
-# Parse date string to date object
-d = parse_date("2025-11-30")  # date(2025, 11, 30)
 ```
 
 ### Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `ENVIRONMENT` | deployment environment | `development` |
-| `ROOT_PATH` | API root path prefix | (empty) |
+| `ENVIRONMENT` | `development` / `staging` / `production` | `development` |
+| `API_PREFIX` | ALB path-routing prefix (e.g. `/workout-planner`) | (empty) |
+| `ARTEMIS_AUTH_URL` | Auth service URL for public key fetch | `http://localhost:8090` |
+| `DATABASE_URL` | PostgreSQL connection string | service-specific SQLite |
+| `REDIS_URL` | Redis connection string | `redis://localhost:6379` |
 
-## Development
+## Directory Structure
 
-All services now follow a standardized pattern:
-
-- **FastAPI framework** with shared app factory
-- **Uvicorn ASGI server**
-- **Standard endpoints**: `/health`, `/ready`, `/`, `/docs`
-- **Security headers**: X-Content-Type-Options, X-Frame-Options, etc.
-- **Request tracking**: X-Request-ID correlation header
-- **Response timing**: X-Response-Time-Ms header
-- **CORS**: enabled for development
-
-## API Documentation
-
-When running, each service exposes:
-- Swagger UI: `http://localhost:<PORT>/docs`
-- ReDoc: `http://localhost:<PORT>/redoc`
-- OpenAPI spec: `http://localhost:<PORT>/openapi.json`
+```
+services/
+├── common/                     # Shared Python library
+│   ├── app_factory.py          # FastAPI app factory
+│   ├── artemis_auth.py         # Dual-token auth for module endpoints
+│   ├── database.py             # DB abstraction
+│   ├── middleware.py            # Correlation IDs, logging
+│   └── ...
+├── artemis/                    # Platform hub
+├── auth/                       # Central auth service
+├── workout-planner/            # Fitness coaching
+├── meal-planner/               # Nutrition tracking
+├── home-manager/               # Household management
+├── vehicle-manager/            # Vehicle tracking
+├── work-planner/               # Task & project management
+├── education-planner/          # Learning management
+└── content-planner/            # Content consumption tracking
+```
 
 ## Testing
 
 ```bash
-# Run tests for a specific service
 cd workout-planner
 pytest
-
-# Run with coverage
 pytest --cov=. --cov-report=term
 ```
+
+## API Documentation
+
+Each running service exposes Swagger UI at `/docs` and ReDoc at `/redoc`.

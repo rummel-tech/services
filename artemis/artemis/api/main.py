@@ -1,9 +1,8 @@
 """Artemis Platform API — central hub for all Artemis modules."""
-from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+import sys
+from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from artemis.core.registry import registry
 from artemis.core.settings import get_settings
@@ -11,49 +10,28 @@ from artemis.routers.agent import router as agent_router
 from artemis.routers.dashboard import router as dashboard_router
 from artemis.routers.modules import router as modules_router
 
+from common import create_app, ServiceConfig
+
 settings = get_settings()
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await registry.initialize()
-    yield
-    await registry.shutdown()
-
-
-app = FastAPI(
+config = ServiceConfig(
+    name="artemis",
     title="Artemis Personal OS Platform",
-    description="Central hub that orchestrates Artemis-compatible modules",
     version="1.0.0",
-    lifespan=lifespan,
+    description="Central hub that orchestrates Artemis-compatible modules",
+    port=settings.port,
+    environment=settings.environment,
+    log_level=settings.log_level,
+    cors_origins=settings.cors_origins if isinstance(settings.cors_origins, list) else [settings.cors_origins],
+    enable_metrics=True,
+    enable_rate_limiting=(settings.environment == "production"),
+    redis_enabled=False,
+    on_startup=[registry.initialize],
+    on_shutdown=[registry.shutdown],
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins if isinstance(settings.cors_origins, list) else [settings.cors_origins],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = create_app(config)
 
-app.include_router(modules_router)
-app.include_router(dashboard_router)
-app.include_router(agent_router)
-
-
-@app.get("/health")
-async def health():
-    healthy = sum(1 for m in registry.list_modules() if m.healthy)
-    total = len(registry.list_modules())
-    return {
-        "status": "healthy",
-        "service": "artemis",
-        "version": "1.0.0",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "modules": {"healthy": healthy, "total": total},
-    }
-
-
-@app.get("/ready")
-async def ready():
-    return {"status": "ready"}
+app.include_router(modules_router, prefix=config.api_prefix)
+app.include_router(dashboard_router, prefix=config.api_prefix)
+app.include_router(agent_router, prefix=config.api_prefix)

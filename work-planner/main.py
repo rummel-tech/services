@@ -63,9 +63,9 @@ config = ServiceConfig(
 
 app = create_app(config)
 
-app.include_router(healthcheck.router)
-app.include_router(auth.router)
-app.include_router(goals.router)
-app.include_router(plans.router)
-app.include_router(planners.router)
-app.include_router(artemis.router)
+app.include_router(healthcheck.router, prefix=config.api_prefix)
+app.include_router(auth.router, prefix=config.api_prefix)
+app.include_router(goals.router, prefix=config.api_prefix)
+app.include_router(plans.router, prefix=config.api_prefix)
+app.include_router(planners.router, prefix=config.api_prefix)
+app.include_router(artemis.router, prefix=config.api_prefix)

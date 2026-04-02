@@ -8,6 +8,7 @@ while keeping workout-planner-specific routers and domain logic.
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
+from fastapi import APIRouter
 from pydantic import BaseModel
 
 # Add common package to path
@@ -79,21 +80,21 @@ app = create_app(config)
 engine = AIFitnessEngine()
 
 # Include domain-specific routers
-app.include_router(healthcheck.router)  # Health checks first
-app.include_router(auth.router)
-app.include_router(goals.router)
-app.include_router(health.router)
-app.include_router(strength.router)
-app.include_router(swim.router)
-app.include_router(murph.router)
-app.include_router(readiness.router)
-app.include_router(chat.router)
-app.include_router(weekly_plans.router)
-app.include_router(daily_plans.router)
-app.include_router(meals.router)
-app.include_router(waitlist.router)
-app.include_router(workouts.router)
-app.include_router(artemis.router)
+app.include_router(healthcheck.router, prefix=config.api_prefix)  # Health checks first
+app.include_router(auth.router, prefix=config.api_prefix)
+app.include_router(goals.router, prefix=config.api_prefix)
+app.include_router(health.router, prefix=config.api_prefix)
+app.include_router(strength.router, prefix=config.api_prefix)
+app.include_router(swim.router, prefix=config.api_prefix)
+app.include_router(murph.router, prefix=config.api_prefix)
+app.include_router(readiness.router, prefix=config.api_prefix)
+app.include_router(chat.router, prefix=config.api_prefix)
+app.include_router(weekly_plans.router, prefix=config.api_prefix)
+app.include_router(daily_plans.router, prefix=config.api_prefix)
+app.include_router(meals.router, prefix=config.api_prefix)
+app.include_router(waitlist.router, prefix=config.api_prefix)
+app.include_router(workouts.router, prefix=config.api_prefix)
+app.include_router(artemis.router, prefix=config.api_prefix)
 
 
 # Domain-specific request/response models
@@ -113,32 +114,37 @@ class WorkoutData(BaseModel):
     run2_s: float | None = None
 
 
-# Legacy AI engine endpoints (kept for backward compatibility)
-@app.post("/daily", tags=["AI Engine"])
+legacy_router = APIRouter(tags=["AI Engine"])
+
+
+@legacy_router.post("/daily")
 def daily_plan(user: UserData):
     """Generate a daily workout plan based on user health data."""
     return engine.generate_daily_plan(user.dict())
 
 
-@app.post("/weekly", tags=["AI Engine"])
+@legacy_router.post("/weekly")
 def weekly_plan(user: UserData):
     """Generate a weekly workout plan based on user health data."""
     return engine.generate_weekly_plan(user.dict())
 
 
-@app.post("/process/swim", tags=["AI Engine"])
+@legacy_router.post("/process/swim")
 def swim_metrics(workout: WorkoutData):
     """Process swimming workout metrics."""
     return engine.process_swim_metrics(workout.dict())
 
 
-@app.post("/process/strength", tags=["AI Engine"])
+@legacy_router.post("/process/strength")
 def strength_metrics(workout: WorkoutData):
     """Process strength workout metrics."""
     return engine.process_strength_metrics(workout.dict())
 
 
-@app.post("/process/murph", tags=["AI Engine"])
+@legacy_router.post("/process/murph")
 def murph_metrics(workout: WorkoutData):
     """Process Murph workout metrics."""
     return engine.process_murph(workout.dict())
+
+
+app.include_router(legacy_router, prefix=config.api_prefix)

@@ -28,3 +28,8 @@ modules:
     manifest_url: http://localhost:8050/artemis/manifest
     prod_manifest_url: https://api.rummeltech.com/education-planner/artemis/manifest
     enabled: true
+
+  - id: content-planner
+    manifest_url: http://localhost:8060/artemis/manifest
+    prod_manifest_url: https://api.rummeltech.com/content-planner/artemis/manifest
+    enabled: true

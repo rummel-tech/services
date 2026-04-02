@@ -53,7 +53,7 @@ SERVICES=(
     "home-manager:8020"
     "vehicle-manager:8030"
     "meal-planner:8010"
-    "artemis:8000"
+    "artemis:8080"
 )
 
 echo "============================================================"

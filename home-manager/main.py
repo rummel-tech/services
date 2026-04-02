@@ -35,7 +35,7 @@ _load_env()
 from common.aws_secrets import inject_secrets_from_aws
 inject_secrets_from_aws()
 
-from fastapi import Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from common import create_app, ServiceConfig
 from common.models import (
@@ -77,7 +77,7 @@ config = ServiceConfig(
 )
 
 app = create_app(config)
-app.include_router(artemis_router.router)
+router = APIRouter()
 
 USE_SQLITE = is_sqlite(get_database_url())
 
@@ -95,7 +95,7 @@ def _parse_row(row_dict: dict) -> dict:
 # Task Endpoints
 # ============================================================================
 
-@app.get("/tasks/{user_id}", response_model=List[Task])
+@router.get("/tasks/{user_id}", response_model=List[Task])
 async def list_tasks(user_id: str, token: TokenData = Depends(require_token)):
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -105,7 +105,7 @@ async def list_tasks(user_id: str, token: TokenData = Depends(require_token)):
         return [Task(**_parse_row(dict_from_row(row, USE_SQLITE))) for row in rows]
 
 
-@app.post("/tasks", response_model=Task, status_code=status.HTTP_201_CREATED)
+@router.post("/tasks", response_model=Task, status_code=status.HTTP_201_CREATED)
 async def create_task(task: TaskCreate, token: TokenData = Depends(require_token)):
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -137,7 +137,7 @@ async def create_task(task: TaskCreate, token: TokenData = Depends(require_token
         return Task(**_parse_row(dict_from_row(row, USE_SQLITE)))
 
 
-@app.get("/tasks/{user_id}/{task_id}", response_model=Task)
+@router.get("/tasks/{user_id}/{task_id}", response_model=Task)
 async def get_task(user_id: str, task_id: UUID, token: TokenData = Depends(require_token)):
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -149,7 +149,7 @@ async def get_task(user_id: str, task_id: UUID, token: TokenData = Depends(requi
         return Task(**_parse_row(dict_from_row(row, USE_SQLITE)))
 
 
-@app.put("/tasks/{user_id}/{task_id}", response_model=Task)
+@router.put("/tasks/{user_id}/{task_id}", response_model=Task)
 async def update_task(user_id: str, task_id: UUID, task_update: TaskUpdate, token: TokenData = Depends(require_token)):
     updates = {k: v for k, v in task_update.dict().items() if v is not None}
     if not updates:
@@ -174,7 +174,7 @@ async def update_task(user_id: str, task_id: UUID, task_update: TaskUpdate, toke
         return Task(**_parse_row(dict_from_row(row, USE_SQLITE)))
 
 
-@app.delete("/tasks/{user_id}/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/tasks/{user_id}/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_task(user_id: str, task_id: UUID, token: TokenData = Depends(require_token)):
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -188,7 +188,7 @@ async def delete_task(user_id: str, task_id: UUID, token: TokenData = Depends(re
 # Goal Endpoints
 # ============================================================================
 
-@app.get("/goals/{user_id}", response_model=List[Goal])
+@router.get("/goals/{user_id}", response_model=List[Goal])
 async def list_goals(user_id: str, token: TokenData = Depends(require_token)):
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -198,7 +198,7 @@ async def list_goals(user_id: str, token: TokenData = Depends(require_token)):
         return [Goal(**_parse_row(dict_from_row(row, USE_SQLITE))) for row in rows]
 
 
-@app.post("/goals", response_model=Goal, status_code=status.HTTP_201_CREATED)
+@router.post("/goals", response_model=Goal, status_code=status.HTTP_201_CREATED)
 async def create_goal(goal: GoalCreate, token: TokenData = Depends(require_token)):
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -229,7 +229,7 @@ async def create_goal(goal: GoalCreate, token: TokenData = Depends(require_token
         return Goal(**_parse_row(dict_from_row(row, USE_SQLITE)))
 
 
-@app.get("/goals/{user_id}/{goal_id}", response_model=Goal)
+@router.get("/goals/{user_id}/{goal_id}", response_model=Goal)
 async def get_goal(user_id: str, goal_id: UUID, token: TokenData = Depends(require_token)):
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -245,7 +245,7 @@ async def get_goal(user_id: str, goal_id: UUID, token: TokenData = Depends(requi
 # Asset Endpoints
 # ============================================================================
 
-@app.get("/assets/{user_id}", response_model=List[Asset])
+@router.get("/assets/{user_id}", response_model=List[Asset])
 async def list_assets(user_id: str, asset_type: Optional[str] = None, token: TokenData = Depends(require_token)):
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -259,7 +259,7 @@ async def list_assets(user_id: str, asset_type: Optional[str] = None, token: Tok
         return [Asset(**_parse_row(dict_from_row(row, USE_SQLITE))) for row in rows]
 
 
-@app.post("/assets", response_model=Asset, status_code=status.HTTP_201_CREATED)
+@router.post("/assets", response_model=Asset, status_code=status.HTTP_201_CREATED)
 async def create_asset(asset: AssetCreate, token: TokenData = Depends(require_token)):
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -293,6 +293,10 @@ async def create_asset(asset: AssetCreate, token: TokenData = Depends(require_to
         if not row:
             raise HTTPException(status_code=500, detail="Failed to create asset")
         return Asset(**_parse_row(dict_from_row(row, USE_SQLITE)))
+
+
+app.include_router(artemis_router.router, prefix=config.api_prefix)
+app.include_router(router, prefix=config.api_prefix)
 
 
 if __name__ == "__main__":

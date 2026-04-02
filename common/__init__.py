@@ -24,6 +24,7 @@ from .logging_config import (
     correlation_id_var,
 )
 from .aws_secrets import inject_secrets_from_aws, load_secret_from_aws
+from .artemis_auth import create_artemis_token_dependency, fetch_artemis_public_key
 from . import metrics
 from . import redis_client
 from . import cache
@@ -53,6 +54,9 @@ __all__ = [
     # AWS
     "inject_secrets_from_aws",
     "load_secret_from_aws",
+    # Artemis module auth
+    "create_artemis_token_dependency",
+    "fetch_artemis_public_key",
     # Modules
     "metrics",
     "redis_client",

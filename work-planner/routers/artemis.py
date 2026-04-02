@@ -1,98 +1,26 @@
-"""Artemis Module Contract endpoints — stub implementation.
-
-Full implementation comes in Phase 2. These endpoints must exist for
-Artemis discovery; they return minimal but valid responses.
+"""Artemis Module Contract endpoints for Work Planner.
 
 Accepts both standalone work-planner tokens AND Artemis platform tokens
-(iss == "artemis-auth"). Artemis tokens are verified against the public key
-fetched from the auth service at ARTEMIS_AUTH_URL.
+(iss == "artemis-auth") via the shared dual-token auth in common/.
 """
 
-import os
-import time
+import uuid
+from datetime import datetime, timedelta
 from typing import Optional
 
-import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, status
-from jose import JWTError, jwt
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 
+from common.artemis_auth import create_artemis_token_dependency
 from core.auth_service import TokenData, decode_token
-from core.settings import get_settings
+from core.database import get_db, get_cursor
 
 router = APIRouter(prefix='/artemis', tags=['artemis'])
 
-# ---------------------------------------------------------------------------
-# Artemis public key cache (TTL: 24 hours)
-# ---------------------------------------------------------------------------
-
-_artemis_public_key: Optional[str] = None
-_artemis_public_key_fetched_at: float = 0.0
-_KEY_CACHE_TTL = 86400  # 24 hours
-
-ARTEMIS_AUTH_URL = os.getenv('ARTEMIS_AUTH_URL', 'http://localhost:8090')
-
-
-def _fetch_artemis_public_key() -> Optional[str]:
-    """Fetch and cache the Artemis RSA public key from the auth service."""
-    global _artemis_public_key, _artemis_public_key_fetched_at
-    now = time.time()
-    if _artemis_public_key and (now - _artemis_public_key_fetched_at) < _KEY_CACHE_TTL:
-        return _artemis_public_key
-    try:
-        r = httpx.get(f'{ARTEMIS_AUTH_URL}/auth/public-key', timeout=3.0)
-        if r.status_code == 200:
-            _artemis_public_key = r.json()['public_key']
-            _artemis_public_key_fetched_at = now
-            return _artemis_public_key
-    except Exception:
-        pass
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Dual-mode token dependency
-# ---------------------------------------------------------------------------
-
-def _get_token_payload(authorization: Optional[str]) -> TokenData:
-    """Accept both standalone work-planner tokens and Artemis platform tokens."""
-    if not authorization or not authorization.startswith('Bearer '):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Missing token')
-
-    raw = authorization.split(' ', 1)[1]
-
-    try:
-        unverified = jwt.get_unverified_claims(raw)
-    except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid token')
-
-    if unverified.get('iss') == 'artemis-auth':
-        pub_key = _fetch_artemis_public_key()
-        if pub_key:
-            try:
-                payload = jwt.decode(raw, pub_key, algorithms=['RS256'], issuer='artemis-auth')
-                return TokenData(
-                    user_id=payload['sub'],
-                    email=payload.get('email', ''),
-                    jti=payload.get('jti'),
-                    exp=payload.get('exp'),
-                )
-            except JWTError as e:
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f'Invalid Artemis token: {e}')
-        # Auth service unavailable — dev fallback only
-        settings = get_settings()
-        if settings.environment != 'production':
-            return TokenData(user_id=unverified.get('sub', 'dev-user'), email=unverified.get('email', ''))
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Auth service unavailable')
-
-    # Standalone token
-    token_data = decode_token(raw)
-    if not token_data:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid token')
-    return token_data
-
-
-def require_token(authorization: Optional[str] = Header(None)) -> TokenData:
-    return _get_token_payload(authorization)
+require_token = create_artemis_token_dependency(
+    standalone_decoder=decode_token,
+    token_data_class=TokenData,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -199,29 +127,293 @@ async def get_manifest() -> dict:
     return MODULE_MANIFEST
 
 
-@router.get('/widgets/{widget_id}')
-async def get_widget(
-    widget_id: str,
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _get_or_create_day_planner(conn, user_id: str, date_str: str) -> str:
+    """Return the day_planner id for the given date, creating it if needed."""
+    cur = get_cursor(conn)
+    cur.execute('SELECT id FROM day_planners WHERE user_id = ? AND date = ?', (user_id, date_str))
+    row = cur.fetchone()
+    if row:
+        return row['id']
+    dp_id = str(uuid.uuid4())
+    cur.execute(
+        'INSERT INTO day_planners (id, user_id, date) VALUES (?, ?, ?)',
+        (dp_id, user_id, date_str),
+    )
+    conn.commit()
+    return dp_id
+
+
+def _task_summary(row: dict) -> dict:
+    return {
+        'id': row['id'],
+        'title': row['title'],
+        'priority': row['priority'],
+        'scheduled_time': row.get('scheduled_time'),
+        'duration_minutes': row.get('duration_minutes'),
+        'completed': bool(row['completed']),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Widget endpoints
+# ---------------------------------------------------------------------------
+
+@router.get('/widgets/todays_tasks')
+async def widget_todays_tasks(token: TokenData = Depends(require_token)) -> dict:
+    """Today's task list and completion rate."""
+    today = datetime.today().date().isoformat()
+    with get_db() as conn:
+        cur = get_cursor(conn)
+        cur.execute('SELECT id FROM day_planners WHERE user_id = ? AND date = ?', (token.user_id, today))
+        dp_row = cur.fetchone()
+        if not dp_row:
+            return {'widget_id': 'todays_tasks', 'date': today, 'tasks': [], 'total': 0, 'completed': 0, 'completion_rate': 0.0}
+        cur.execute(
+            'SELECT * FROM tasks WHERE day_planner_id = ? ORDER BY scheduled_time ASC NULLS LAST',
+            (dp_row['id'],),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+
+    total = len(rows)
+    completed = sum(1 for t in rows if t['completed'])
+    return {
+        'widget_id': 'todays_tasks',
+        'date': today,
+        'tasks': [_task_summary(t) for t in rows],
+        'total': total,
+        'completed': completed,
+        'completion_rate': round(completed / total, 2) if total > 0 else 0.0,
+    }
+
+
+@router.get('/widgets/weekly_progress')
+async def widget_weekly_progress(token: TokenData = Depends(require_token)) -> dict:
+    """Task completion rate for the current week."""
+    today = datetime.today().date()
+    monday = today - timedelta(days=today.weekday())
+    dates = [(monday + timedelta(days=i)).isoformat() for i in range(7)]
+
+    with get_db() as conn:
+        cur = get_cursor(conn)
+        placeholders = ','.join('?' * 7)
+        cur.execute(
+            f"""SELECT t.completed FROM tasks t
+                JOIN day_planners dp ON t.day_planner_id = dp.id
+                WHERE dp.user_id = ? AND dp.date IN ({placeholders})""",
+            [token.user_id, *dates],
+        )
+        rows = cur.fetchall()
+
+    total = len(rows)
+    completed = sum(1 for r in rows if r['completed'])
+    return {
+        'widget_id': 'weekly_progress',
+        'week_start': monday.isoformat(),
+        'total': total,
+        'completed': completed,
+        'completion_rate': round(completed / total, 2) if total > 0 else 0.0,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Agent tool endpoints
+# ---------------------------------------------------------------------------
+
+@router.get('/agent/get_todays_tasks')
+async def agent_get_todays_tasks(
+    date: Optional[str] = Query(None, description='ISO date, defaults to today'),
     token: TokenData = Depends(require_token),
 ) -> dict:
-    """Return live widget data. Full implementation in Phase 2."""
-    return {'widget_id': widget_id, 'data': {}, 'status': 'stub — Phase 2'}
+    """Get the user's tasks for today or a specific date."""
+    target = date or datetime.today().date().isoformat()
+    with get_db() as conn:
+        cur = get_cursor(conn)
+        cur.execute('SELECT id FROM day_planners WHERE user_id = ? AND date = ?', (token.user_id, target))
+        dp_row = cur.fetchone()
+        if not dp_row:
+            return {'date': target, 'tasks': [], 'total': 0, 'completed': 0}
+        cur.execute(
+            'SELECT * FROM tasks WHERE day_planner_id = ? ORDER BY scheduled_time ASC NULLS LAST',
+            (dp_row['id'],),
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+
+    total = len(rows)
+    completed = sum(1 for t in rows if t['completed'])
+    return {
+        'date': target,
+        'tasks': [_task_summary(t) for t in rows],
+        'total': total,
+        'completed': completed,
+    }
 
 
-@router.post('/agent/{tool_id}')
-async def execute_agent_tool(
-    tool_id: str,
-    body: dict,
+class AgentCreateTaskBody(BaseModel):
+    title: str
+    date: Optional[str] = None       # ISO date, defaults to today
+    priority: str = 'medium'         # low | medium | high | urgent
+    description: Optional[str] = None
+    scheduled_time: Optional[str] = None
+    duration_minutes: Optional[int] = None
+
+
+@router.post('/agent/create_task')
+async def agent_create_task(
+    body: AgentCreateTaskBody,
     token: TokenData = Depends(require_token),
 ) -> dict:
-    """Execute an agent tool. Full implementation in Phase 2."""
-    return {'tool_id': tool_id, 'success': False, 'message': 'stub — Phase 2'}
+    """Create a new task for a specific date."""
+    target = body.date or datetime.today().date().isoformat()
+    task_id = str(uuid.uuid4())
+
+    with get_db() as conn:
+        dp_id = _get_or_create_day_planner(conn, token.user_id, target)
+        cur = get_cursor(conn)
+        cur.execute(
+            """INSERT INTO tasks (id, user_id, day_planner_id, title, description,
+               priority, scheduled_time, duration_minutes)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (task_id, token.user_id, dp_id, body.title, body.description,
+             body.priority, body.scheduled_time, body.duration_minutes),
+        )
+        conn.commit()
+        cur.execute('SELECT * FROM tasks WHERE id = ?', (task_id,))
+        row = dict(cur.fetchone())
+
+    return {'success': True, 'task': _task_summary(row), 'date': target}
 
 
-@router.get('/data/{data_id}')
-async def get_shared_data(
-    data_id: str,
+@router.get('/agent/get_weekly_summary')
+async def agent_get_weekly_summary(
+    week_start: Optional[str] = Query(None, description='ISO date of Monday, defaults to current week'),
     token: TokenData = Depends(require_token),
 ) -> dict:
-    """Return cross-module data. Full implementation in Phase 2."""
-    return {'data_id': data_id, 'data': {}, 'status': 'stub — Phase 2'}
+    """Get task completion summary for the current or specified week."""
+    if week_start:
+        monday = datetime.strptime(week_start, '%Y-%m-%d').date()
+    else:
+        today = datetime.today().date()
+        monday = today - timedelta(days=today.weekday())
+
+    dates = [(monday + timedelta(days=i)).isoformat() for i in range(7)]
+
+    with get_db() as conn:
+        cur = get_cursor(conn)
+        placeholders = ','.join('?' * 7)
+        cur.execute(
+            f"""SELECT t.id, t.title, t.priority, t.completed, dp.date
+                FROM tasks t
+                JOIN day_planners dp ON t.day_planner_id = dp.id
+                WHERE dp.user_id = ? AND dp.date IN ({placeholders})
+                ORDER BY dp.date ASC, t.scheduled_time ASC NULLS LAST""",
+            [token.user_id, *dates],
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+
+    total = len(rows)
+    completed = sum(1 for r in rows if r['completed'])
+
+    by_day = {}
+    for r in rows:
+        d = r['date']
+        if d not in by_day:
+            by_day[d] = {'total': 0, 'completed': 0}
+        by_day[d]['total'] += 1
+        if r['completed']:
+            by_day[d]['completed'] += 1
+
+    return {
+        'week_start': monday.isoformat(),
+        'total': total,
+        'completed': completed,
+        'completion_rate': round(completed / total, 2) if total > 0 else 0.0,
+        'by_day': by_day,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Quick action endpoints
+# ---------------------------------------------------------------------------
+
+@router.post('/actions/add_task')
+async def action_add_task(
+    body: AgentCreateTaskBody,
+    token: TokenData = Depends(require_token),
+) -> dict:
+    """Quick action: add a task to today's planner."""
+    return await agent_create_task(body, token)
+
+
+# ---------------------------------------------------------------------------
+# Cross-module data endpoints
+# ---------------------------------------------------------------------------
+
+@router.get('/data/task_schedule')
+async def data_task_schedule(
+    days: int = Query(7, description='Number of days ahead to include'),
+    token: TokenData = Depends(require_token),
+) -> dict:
+    """Upcoming scheduled tasks for the next N days."""
+    today = datetime.today().date()
+    dates = [(today + timedelta(days=i)).isoformat() for i in range(days)]
+
+    with get_db() as conn:
+        cur = get_cursor(conn)
+        placeholders = ','.join('?' * len(dates))
+        cur.execute(
+            f"""SELECT t.id, t.title, t.priority, t.scheduled_time, t.duration_minutes,
+                       t.completed, dp.date
+                FROM tasks t
+                JOIN day_planners dp ON t.day_planner_id = dp.id
+                WHERE dp.user_id = ? AND dp.date IN ({placeholders}) AND t.completed = 0
+                ORDER BY dp.date ASC, t.scheduled_time ASC NULLS LAST""",
+            [token.user_id, *dates],
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+
+    return {
+        'from': today.isoformat(),
+        'days': days,
+        'tasks': [
+            {
+                'id': r['id'],
+                'title': r['title'],
+                'priority': r['priority'],
+                'date': r['date'],
+                'scheduled_time': r.get('scheduled_time'),
+                'duration_minutes': r.get('duration_minutes'),
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get('/data/goals_progress')
+async def data_goals_progress(token: TokenData = Depends(require_token)) -> dict:
+    """Active goals with completion status."""
+    with get_db() as conn:
+        cur = get_cursor(conn)
+        cur.execute(
+            """SELECT * FROM goals WHERE user_id = ? AND status != 'completed'
+               ORDER BY target_date ASC NULLS LAST, created_at DESC""",
+            (token.user_id,),
+        )
+        goals = [dict(r) for r in cur.fetchall()]
+
+    return {
+        'goals': [
+            {
+                'id': g['id'],
+                'title': g['title'],
+                'goal_type': g['goal_type'],
+                'status': g['status'],
+                'target_date': g.get('target_date'),
+            }
+            for g in goals
+        ],
+        'total': len(goals),
+    }

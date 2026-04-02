@@ -6,11 +6,14 @@ on:
     paths:
       - 'common/**'
       - 'artemis/**'
+      - 'auth/**'
       - 'meal-planner/**'
       - 'home-manager/**'
       - 'vehicle-manager/**'
       - 'workout-planner/**'
-      - 'auth/**'
+      - 'work-planner/**'
+      - 'education-planner/**'
+      - 'content-planner/**'
       - '.github/workflows/**'
   workflow_dispatch:
     inputs:
@@ -21,12 +24,15 @@ on:
         type: choice
         options:
           - all
+          - auth
           - artemis
           - meal-planner
           - home-manager
           - vehicle-manager
           - workout-planner
-          - auth
+          - work-planner
+          - education-planner
+          - content-planner
       environment:
         description: 'Target environment'
         required: true
@@ -48,59 +54,133 @@ jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      artemis: ${{ steps.changes.outputs.artemis }}
-      meal-planner: ${{ steps.changes.outputs.meal-planner }}
-      home-manager: ${{ steps.changes.outputs.home-manager }}
-      vehicle-manager: ${{ steps.changes.outputs.vehicle-manager }}
-      workout-planner: ${{ steps.changes.outputs.workout-planner }}
-      auth: ${{ steps.changes.outputs.auth }}
-      common: ${{ steps.changes.outputs.common }}
+      services: ${{ steps.set-matrix.outputs.services }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
 
-      - name: Detect changes
-        id: changes
+      - name: Determine services to deploy
+        id: set-matrix
         run: |
+          ALL_SERVICES='["auth","artemis","meal-planner","home-manager","vehicle-manager","workout-planner","work-planner","education-planner","content-planner"]'
+
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             SERVICE="${{ github.event.inputs.service }}"
             if [[ "$SERVICE" == "all" ]]; then
-              echo "artemis=true" >> $GITHUB_OUTPUT
-              echo "meal-planner=true" >> $GITHUB_OUTPUT
-              echo "home-manager=true" >> $GITHUB_OUTPUT
-              echo "vehicle-manager=true" >> $GITHUB_OUTPUT
-              echo "workout-planner=true" >> $GITHUB_OUTPUT
-              echo "auth=true" >> $GITHUB_OUTPUT
-              echo "common=true" >> $GITHUB_OUTPUT
+              echo "services=${ALL_SERVICES}" >> $GITHUB_OUTPUT
             else
-              echo "artemis=$([[ "$SERVICE" == "artemis" ]] && echo true || echo false)" >> $GITHUB_OUTPUT
-              echo "meal-planner=$([[ "$SERVICE" == "meal-planner" ]] && echo true || echo false)" >> $GITHUB_OUTPUT
-              echo "home-manager=$([[ "$SERVICE" == "home-manager" ]] && echo true || echo false)" >> $GITHUB_OUTPUT
-              echo "vehicle-manager=$([[ "$SERVICE" == "vehicle-manager" ]] && echo true || echo false)" >> $GITHUB_OUTPUT
-              echo "workout-planner=$([[ "$SERVICE" == "workout-planner" ]] && echo true || echo false)" >> $GITHUB_OUTPUT
-              echo "auth=$([[ "$SERVICE" == "auth" ]] && echo true || echo false)" >> $GITHUB_OUTPUT
-              echo "common=false" >> $GITHUB_OUTPUT
+              echo "services=[\"${SERVICE}\"]" >> $GITHUB_OUTPUT
             fi
           else
             CHANGED=$(git diff --name-only HEAD~1 HEAD)
-            echo "artemis=$(echo "$CHANGED" | grep -q 'artemis/' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "meal-planner=$(echo "$CHANGED" | grep -q 'meal-planner/' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "home-manager=$(echo "$CHANGED" | grep -q 'home-manager/' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "vehicle-manager=$(echo "$CHANGED" | grep -q 'vehicle-manager/' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "workout-planner=$(echo "$CHANGED" | grep -q 'workout-planner/' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "auth=$(echo "$CHANGED" | grep -q 'auth/' && echo true || echo false)" >> $GITHUB_OUTPUT
-            echo "common=$(echo "$CHANGED" | grep -q 'common/' && echo true || echo false)" >> $GITHUB_OUTPUT
+            COMMON_CHANGED=$(echo "$CHANGED" | grep -q 'common/' && echo true || echo false)
+            SERVICES=()
+
+            for svc in auth artemis meal-planner home-manager vehicle-manager workout-planner work-planner education-planner content-planner; do
+              if echo "$CHANGED" | grep -q "${svc}/" || [[ "$COMMON_CHANGED" == "true" ]]; then
+                SERVICES+=("\"${svc}\"")
+              fi
+            done
+
+            if [ ${#SERVICES[@]} -eq 0 ]; then
+              echo "services=[]" >> $GITHUB_OUTPUT
+            else
+              JOINED=$(IFS=,; echo "${SERVICES[*]}")
+              echo "services=[${JOINED}]" >> $GITHUB_OUTPUT
+            fi
           fi
 
-  deploy-artemis:
+  test:
     needs: detect-changes
-    if: needs.detect-changes.outputs.artemis == 'true' || needs.detect-changes.outputs.common == 'true'
+    if: needs.detect-changes.outputs.services != '[]'
     runs-on: ubuntu-latest
-    env:
-      ECR_REPOSITORY: artemis
-      SERVICE_NAME: artemis
-      SERVICE_PORT: 8080
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: '${{ matrix.service }}/requirements.txt'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ./common
+          pip install -r ${{ matrix.service }}/requirements.txt
+          pip install pytest pytest-cov pytest-asyncio httpx
+
+      - name: Create test environment
+        working-directory: ${{ matrix.service }}
+        run: |
+          cat > .env << 'ENVEOF'
+          ENVIRONMENT=test
+          LOG_LEVEL=warning
+          ENVEOF
+
+      - name: Lint
+        working-directory: ${{ matrix.service }}
+        run: |
+          pip install flake8
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics \
+            --exclude=.venv,__pycache__,.pytest_cache,migrations
+
+      - name: Run tests
+        working-directory: ${{ matrix.service }}
+        run: |
+          if [ -d "tests" ]; then
+            pytest tests/ \
+              --cov=. \
+              --cov-report=term \
+              --cov-report=xml \
+              -v \
+              --tb=short
+          else
+            echo "::warning::No tests/ directory found for ${{ matrix.service }}"
+          fi
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-${{ matrix.service }}
+          path: ${{ matrix.service }}/coverage.xml
+          retention-days: 30
+          if-no-files-found: ignore
+
+  deploy:
+    needs: [detect-changes, test]
+    if: github.ref == 'refs/heads/main' && needs.detect-changes.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
+        include:
+          - service: auth
+            port: 8090
+          - service: artemis
+            port: 8080
+          - service: meal-planner
+            port: 8010
+          - service: home-manager
+            port: 8020
+          - service: vehicle-manager
+            port: 8030
+          - service: workout-planner
+            port: 8000
+          - service: work-planner
+            port: 8040
+          - service: education-planner
+            port: 8050
+          - service: content-planner
+            port: 8060
     steps:
       - uses: actions/checkout@v4
 
@@ -112,8 +192,8 @@ jobs:
 
       - name: Ensure ECR repository exists
         run: |
-          aws ecr describe-repositories --repository-names $ECR_REPOSITORY --region $AWS_REGION >/dev/null 2>&1 || \
-          aws ecr create-repository --repository-name $ECR_REPOSITORY --image-scanning-configuration scanOnPush=true --region $AWS_REGION
+          aws ecr describe-repositories --repository-names ${{ matrix.service }} --region $AWS_REGION >/dev/null 2>&1 || \
+          aws ecr create-repository --repository-name ${{ matrix.service }} --image-scanning-configuration scanOnPush=true --region $AWS_REGION
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -124,265 +204,34 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -f $SERVICE_NAME/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          docker build \
+            -f ${{ matrix.service }}/Dockerfile \
+            -t $ECR_REGISTRY/${{ matrix.service }}:$IMAGE_TAG \
+            .
+          docker tag $ECR_REGISTRY/${{ matrix.service }}:$IMAGE_TAG $ECR_REGISTRY/${{ matrix.service }}:latest
+          docker push $ECR_REGISTRY/${{ matrix.service }}:$IMAGE_TAG
+          docker push $ECR_REGISTRY/${{ matrix.service }}:latest
 
-      - name: Update ECS service (if exists)
-        continue-on-error: true
+      - name: Update ECS service
         run: |
-          CLUSTER="app-cluster"
-          SVC="${SERVICE_NAME}-service"
-          aws ecs update-service --cluster $CLUSTER --service $SVC --force-new-deployment --region $AWS_REGION || \
-            echo "ECS service $SVC not found on app-cluster, skipping update"
+          CLUSTER="${{ env.ENVIRONMENT }}-cluster"
+          SVC="${{ matrix.service }}-service"
+          SERVICE_EXISTS=$(aws ecs describe-services \
+            --cluster $CLUSTER \
+            --services $SVC \
+            --region $AWS_REGION \
+            --query 'services[0].status' \
+            --output text 2>/dev/null || echo "")
+
+          if [ "$SERVICE_EXISTS" == "ACTIVE" ]; then
+            aws ecs update-service --cluster $CLUSTER --service $SVC --force-new-deployment --region $AWS_REGION
+            echo "Waiting for $SVC to stabilize..."
+            aws ecs wait services-stable --cluster $CLUSTER --services $SVC --region $AWS_REGION
+          else
+            echo "::warning::ECS service $SVC not found on $CLUSTER. Run Terraform first."
+          fi
 
       - name: Deployment summary
         run: |
-          echo "✅ $SERVICE_NAME deployed to $ENVIRONMENT!"
-          echo "📦 Image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}"
-
-  deploy-meal-planner:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.meal-planner == 'true' || needs.detect-changes.outputs.common == 'true'
-    runs-on: ubuntu-latest
-    env:
-      ECR_REPOSITORY: meal-planner
-      SERVICE_NAME: meal-planner
-      SERVICE_PORT: 8010
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Ensure ECR repository exists
-        run: |
-          aws ecr describe-repositories --repository-names $ECR_REPOSITORY --region $AWS_REGION >/dev/null 2>&1 || \
-          aws ecr create-repository --repository-name $ECR_REPOSITORY --image-scanning-configuration scanOnPush=true --region $AWS_REGION
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build and push Docker image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -f $SERVICE_NAME/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-
-      - name: Update ECS service (if exists)
-        continue-on-error: true
-        run: |
-          CLUSTER="app-cluster"
-          SVC="${SERVICE_NAME}-service"
-          aws ecs update-service --cluster $CLUSTER --service $SVC --force-new-deployment --region $AWS_REGION || \
-            echo "ECS service $SVC not found on app-cluster, skipping update"
-
-      - name: Deployment summary
-        run: |
-          echo "✅ $SERVICE_NAME deployed to $ENVIRONMENT!"
-          echo "📦 Image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}"
-
-  deploy-home-manager:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.home-manager == 'true' || needs.detect-changes.outputs.common == 'true'
-    runs-on: ubuntu-latest
-    env:
-      ECR_REPOSITORY: home-manager
-      SERVICE_NAME: home-manager
-      SERVICE_PORT: 8020
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Ensure ECR repository exists
-        run: |
-          aws ecr describe-repositories --repository-names $ECR_REPOSITORY --region $AWS_REGION >/dev/null 2>&1 || \
-          aws ecr create-repository --repository-name $ECR_REPOSITORY --image-scanning-configuration scanOnPush=true --region $AWS_REGION
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build and push Docker image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -f $SERVICE_NAME/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-
-      - name: Update ECS service (if exists)
-        continue-on-error: true
-        run: |
-          CLUSTER="app-cluster"
-          SVC="${SERVICE_NAME}-service"
-          aws ecs update-service --cluster $CLUSTER --service $SVC --force-new-deployment --region $AWS_REGION || \
-            echo "ECS service $SVC not found on app-cluster, skipping update"
-
-      - name: Deployment summary
-        run: |
-          echo "✅ $SERVICE_NAME deployed to $ENVIRONMENT!"
-          echo "📦 Image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}"
-
-  deploy-vehicle-manager:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.vehicle-manager == 'true' || needs.detect-changes.outputs.common == 'true'
-    runs-on: ubuntu-latest
-    env:
-      ECR_REPOSITORY: vehicle-manager
-      SERVICE_NAME: vehicle-manager
-      SERVICE_PORT: 8030
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Ensure ECR repository exists
-        run: |
-          aws ecr describe-repositories --repository-names $ECR_REPOSITORY --region $AWS_REGION >/dev/null 2>&1 || \
-          aws ecr create-repository --repository-name $ECR_REPOSITORY --image-scanning-configuration scanOnPush=true --region $AWS_REGION
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build and push Docker image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -f $SERVICE_NAME/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-
-      - name: Update ECS service (if exists)
-        continue-on-error: true
-        run: |
-          CLUSTER="app-cluster"
-          SVC="${SERVICE_NAME}-service"
-          aws ecs update-service --cluster $CLUSTER --service $SVC --force-new-deployment --region $AWS_REGION || \
-            echo "ECS service $SVC not found on app-cluster, skipping update"
-
-      - name: Deployment summary
-        run: |
-          echo "✅ $SERVICE_NAME deployed to $ENVIRONMENT!"
-          echo "📦 Image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}"
-
-  deploy-workout-planner:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.workout-planner == 'true' || needs.detect-changes.outputs.common == 'true'
-    runs-on: ubuntu-latest
-    env:
-      ECR_REPOSITORY: workout-planner
-      SERVICE_NAME: workout-planner
-      SERVICE_PORT: 8000
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Ensure ECR repository exists
-        run: |
-          aws ecr describe-repositories --repository-names $ECR_REPOSITORY --region $AWS_REGION >/dev/null 2>&1 || \
-          aws ecr create-repository --repository-name $ECR_REPOSITORY --image-scanning-configuration scanOnPush=true --region $AWS_REGION
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build and push Docker image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -f $SERVICE_NAME/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-
-      - name: Update ECS service (if exists)
-        continue-on-error: true
-        run: |
-          CLUSTER="app-cluster"
-          SVC="${SERVICE_NAME}-service"
-          aws ecs update-service --cluster $CLUSTER --service $SVC --force-new-deployment --region $AWS_REGION || \
-            echo "ECS service $SVC not found on app-cluster, skipping update"
-
-      - name: Deployment summary
-        run: |
-          echo "✅ $SERVICE_NAME deployed to $ENVIRONMENT!"
-          echo "📦 Image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}"
-
-  deploy-auth:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.auth == 'true' || needs.detect-changes.outputs.common == 'true'
-    runs-on: ubuntu-latest
-    env:
-      ECR_REPOSITORY: auth
-      SERVICE_NAME: auth
-      SERVICE_PORT: 8090
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Ensure ECR repository exists
-        run: |
-          aws ecr describe-repositories --repository-names $ECR_REPOSITORY --region $AWS_REGION >/dev/null 2>&1 || \
-          aws ecr create-repository --repository-name $ECR_REPOSITORY --image-scanning-configuration scanOnPush=true --region $AWS_REGION
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build and push Docker image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          docker build -f $SERVICE_NAME/Dockerfile -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-
-      - name: Update ECS service (if exists)
-        continue-on-error: true
-        run: |
-          CLUSTER="app-cluster"
-          SVC="${SERVICE_NAME}-service"
-          aws ecs update-service --cluster $CLUSTER --service $SVC --force-new-deployment --region $AWS_REGION || \
-            echo "ECS service $SVC not found on app-cluster, skipping update"
-
-      - name: Deployment summary
-        run: |
-          echo "✅ $SERVICE_NAME deployed to $ENVIRONMENT!"
-          echo "📦 Image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:${{ github.sha }}"
+          echo "Deployed ${{ matrix.service }} (port ${{ matrix.port }}) to ${{ env.ENVIRONMENT }}"
+          echo "Image: ${{ steps.login-ecr.outputs.registry }}/${{ matrix.service }}:${{ github.sha }}"

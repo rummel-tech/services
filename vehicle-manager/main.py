@@ -38,7 +38,7 @@ _load_env()
 from common.aws_secrets import inject_secrets_from_aws
 inject_secrets_from_aws()
 
-from fastapi import Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from common import create_app, ServiceConfig
@@ -80,7 +80,7 @@ config = ServiceConfig(
 )
 
 app = create_app(config)
-app.include_router(artemis_router.router)
+router = APIRouter()
 
 USE_SQLITE = is_sqlite(get_database_url())
 
@@ -128,7 +128,7 @@ class FuelRecordCreate(BaseModel):
 # Vehicle Endpoints
 # ============================================================================
 
-@app.get("/vehicles/{user_id}", response_model=List[Asset])
+@router.get("/vehicles/{user_id}", response_model=List[Asset])
 async def list_vehicles(user_id: str, token: TokenData = Depends(require_token)):
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -141,7 +141,7 @@ async def list_vehicles(user_id: str, token: TokenData = Depends(require_token))
         return [Asset(**dict_from_row(row, USE_SQLITE)) for row in rows]
 
 
-@app.post("/vehicles", response_model=Asset, status_code=status.HTTP_201_CREATED)
+@router.post("/vehicles", response_model=Asset, status_code=status.HTTP_201_CREATED)
 async def create_vehicle(vehicle: AssetCreate, token: TokenData = Depends(require_token)):
     vehicle.asset_type = "vehicle"
     with get_connection() as conn:
@@ -178,7 +178,7 @@ async def create_vehicle(vehicle: AssetCreate, token: TokenData = Depends(requir
         return Asset(**_parse_row(dict_from_row(row, USE_SQLITE)))
 
 
-@app.get("/vehicles/{user_id}/{vehicle_id}", response_model=Asset)
+@router.get("/vehicles/{user_id}/{vehicle_id}", response_model=Asset)
 async def get_vehicle(user_id: str, vehicle_id: UUID, token: TokenData = Depends(require_token)):
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -197,7 +197,7 @@ async def get_vehicle(user_id: str, vehicle_id: UUID, token: TokenData = Depends
 # Maintenance Endpoints
 # ============================================================================
 
-@app.get("/maintenance/{vehicle_id}", response_model=List[MaintenanceRecord])
+@router.get("/maintenance/{vehicle_id}", response_model=List[MaintenanceRecord])
 async def list_maintenance(vehicle_id: UUID, token: TokenData = Depends(require_token)):
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -210,7 +210,7 @@ async def list_maintenance(vehicle_id: UUID, token: TokenData = Depends(require_
         return [MaintenanceRecord(**_parse_row(dict_from_row(row, USE_SQLITE))) for row in rows]
 
 
-@app.post("/maintenance", response_model=MaintenanceRecord, status_code=status.HTTP_201_CREATED)
+@router.post("/maintenance", response_model=MaintenanceRecord, status_code=status.HTTP_201_CREATED)
 async def create_maintenance(maintenance: MaintenanceRecordCreate, token: TokenData = Depends(require_token)):
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -249,7 +249,7 @@ async def create_maintenance(maintenance: MaintenanceRecordCreate, token: TokenD
 # Fuel Record Endpoints
 # ============================================================================
 
-@app.get("/fuel/{vehicle_id}", response_model=List[FuelRecord])
+@router.get("/fuel/{vehicle_id}", response_model=List[FuelRecord])
 async def list_fuel_records(vehicle_id: UUID, limit: Optional[int] = None, token: TokenData = Depends(require_token)):
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -269,7 +269,7 @@ async def list_fuel_records(vehicle_id: UUID, limit: Optional[int] = None, token
         return [FuelRecord(**dict_from_row(row, USE_SQLITE)) for row in rows]
 
 
-@app.post("/fuel", response_model=FuelRecord, status_code=status.HTTP_201_CREATED)
+@router.post("/fuel", response_model=FuelRecord, status_code=status.HTTP_201_CREATED)
 async def create_fuel_record(fuel: FuelRecordCreate, token: TokenData = Depends(require_token)):
     if fuel.price_per_gallon is None and fuel.gallons > 0:
         fuel.price_per_gallon = fuel.cost / fuel.gallons
@@ -319,7 +319,7 @@ async def create_fuel_record(fuel: FuelRecordCreate, token: TokenData = Depends(
 # Statistics Endpoints
 # ============================================================================
 
-@app.get("/stats/{vehicle_id}")
+@router.get("/stats/{vehicle_id}")
 async def get_vehicle_stats(vehicle_id: UUID, token: TokenData = Depends(require_token)):
     with get_connection() as conn:
         cur = get_cursor(conn)
@@ -355,6 +355,9 @@ async def get_vehicle_stats(vehicle_id: UUID, token: TokenData = Depends(require
             },
         }
 
+
+app.include_router(artemis_router.router, prefix=config.api_prefix)
+app.include_router(router, prefix=config.api_prefix)
 
 if __name__ == "__main__":
     import uvicorn

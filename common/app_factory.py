@@ -16,7 +16,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional, List, Callable, Any
 
-from fastapi import FastAPI, Request, Response
+from fastapi import APIRouter, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from .error_handlers import install_error_handlers
@@ -38,6 +38,9 @@ class ServiceConfig:
     description: str = ""
     port: int = 8000
     root_path: Optional[str] = None
+
+    # Route prefix for ALB path-based routing (e.g., "/meal-planner")
+    api_prefix: str = ""
 
     # Environment
     environment: str = field(
@@ -77,6 +80,11 @@ class ServiceConfig:
         env_root_path = os.getenv("ROOT_PATH", "")
         if env_root_path:
             self.root_path = env_root_path
+
+        # Allow api_prefix override from environment
+        env_prefix = os.getenv("API_PREFIX", "")
+        if env_prefix and not self.api_prefix:
+            self.api_prefix = env_prefix
 
         # Parse CORS origins from environment if set
         env_cors = os.getenv("CORS_ORIGINS", "")
@@ -284,73 +292,84 @@ def create_app(config: ServiceConfig) -> FastAPI:
                 if hasattr(result, '__await__'):
                     await result
 
-    # Health endpoints
-    @app.get("/health", tags=["Health"])
-    async def health():
-        """Basic health check endpoint."""
+    # --- Built-in endpoint handlers ---
+
+    async def _health():
         return {"status": "ok", "service": config.name}
 
-    @app.get("/ready", tags=["Health"])
-    async def ready():
-        """Readiness check endpoint with dependency status."""
-        status = "ready"
+    async def _ready():
+        ready_status = "ready"
         redis_status = "disabled"
-
         if config.redis_enabled:
             if redis_client.is_redis_available():
                 redis_status = "ok"
             else:
                 redis_status = "error"
-                status = "degraded"
-
+                ready_status = "degraded"
         return {
-            "status": status,
+            "status": ready_status,
             "service": config.name,
             "environment": config.environment,
-            "redis": redis_status
+            "redis": redis_status,
         }
 
-    # Metrics endpoint
-    if config.enable_metrics:
-        @app.get("/metrics", tags=["Monitoring"])
-        async def metrics_endpoint():
-            """Prometheus metrics endpoint."""
-            data, content_type = metrics_module.metrics_response()
-            return Response(content=data, media_type=content_type)
+    async def _metrics_endpoint():
+        data, content_type = metrics_module.metrics_response()
+        return Response(content=data, media_type=content_type)
 
-    # Cache stats endpoint (if Redis enabled)
-    if config.redis_enabled:
-        from . import cache
-
-        @app.get("/cache/stats", tags=["Monitoring"])
-        async def cache_stats():
-            """Get cache performance statistics."""
-            return cache.get_cache_stats()
-
-    # Root endpoint
-    @app.get("/", tags=["Root"])
-    async def root():
-        """Service information endpoint."""
+    async def _root():
+        prefix = config.api_prefix
         endpoints = {
-            "health": "/health",
-            "readiness": "/ready",
+            "health": f"{prefix}/health",
+            "readiness": f"{prefix}/ready",
             "documentation": "/docs",
-            "openapi_spec": "/openapi.json"
+            "openapi_spec": "/openapi.json",
         }
-
         if config.enable_metrics:
-            endpoints["metrics"] = "/metrics"
-
+            endpoints["metrics"] = f"{prefix}/metrics"
         if config.redis_enabled:
-            endpoints["cache_stats"] = "/cache/stats"
-
+            endpoints["cache_stats"] = f"{prefix}/cache/stats"
         return {
             "service": config.name,
             "title": config.title,
             "version": config.version,
             "status": "operational",
             "environment": config.environment,
-            "endpoints": endpoints
+            "endpoints": endpoints,
         }
+
+    # Root-level health endpoints (for ECS target group and container health checks)
+    app.get("/health", tags=["Health"])(_health)
+    app.get("/ready", tags=["Health"])(_ready)
+
+    # Prefixed endpoints (for ALB path-based routing)
+    if config.api_prefix:
+        prefixed = APIRouter(prefix=config.api_prefix)
+        prefixed.get("/health", tags=["Health"])(_health)
+        prefixed.get("/ready", tags=["Health"])(_ready)
+        prefixed.get("/", tags=["Root"])(_root)
+
+        if config.enable_metrics:
+            prefixed.get("/metrics", tags=["Monitoring"])(_metrics_endpoint)
+
+        if config.redis_enabled:
+            from . import cache
+            @prefixed.get("/cache/stats", tags=["Monitoring"])
+            async def _cache_stats_prefixed():
+                return cache.get_cache_stats()
+
+        app.include_router(prefixed)
+
+    # Unprefixed metrics + root (for local dev / direct access)
+    if config.enable_metrics:
+        app.get("/metrics", tags=["Monitoring"])(_metrics_endpoint)
+
+    if config.redis_enabled:
+        from . import cache
+        @app.get("/cache/stats", tags=["Monitoring"])
+        async def cache_stats():
+            return cache.get_cache_stats()
+
+    app.get("/", tags=["Root"])(_root)
 
     return app

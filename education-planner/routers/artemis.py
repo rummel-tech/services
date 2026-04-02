@@ -1,107 +1,25 @@
 """Artemis Module Contract endpoints for Education Planner.
 
-Implements the Artemis Module Contract v1.0:
-  GET  /artemis/manifest
-  GET  /artemis/widgets/{widget_id}
-  POST /artemis/agent/{tool_id}
-  GET  /artemis/agent/{tool_id}    (for read-only tools)
-  GET  /artemis/data/{data_id}
-  GET  /artemis/summary
-  GET  /artemis/calendar
-
 Accepts both standalone education-planner tokens AND Artemis platform tokens
-(iss == "artemis-auth"). Artemis tokens are verified against the public key
-fetched from the auth service at ARTEMIS_AUTH_URL.
+(iss == "artemis-auth") via the shared dual-token auth in common/.
 """
 
-import os
-import time
 import uuid
 from datetime import datetime, timezone, timedelta, date as date_type
 from typing import Optional
 
-import httpx
-from fastapi import APIRouter, Depends, Header, HTTPException, status
-from jose import JWTError, jwt
+from fastapi import APIRouter, Depends, HTTPException, status
 
+from common.artemis_auth import create_artemis_token_dependency
 from core.auth_service import TokenData, decode_token
 from core.database import get_db, get_cursor, USE_SQLITE
-from core.logging_config import get_logger
-from core.settings import get_settings
 
-log = get_logger('api.artemis')
 router = APIRouter(prefix='/artemis', tags=['artemis'])
 
-# ---------------------------------------------------------------------------
-# Artemis public key cache (TTL: 24 hours)
-# ---------------------------------------------------------------------------
-
-_artemis_public_key: Optional[str] = None
-_artemis_public_key_fetched_at: float = 0.0
-_KEY_CACHE_TTL = 86400
-
-ARTEMIS_AUTH_URL = os.getenv('ARTEMIS_AUTH_URL', 'http://localhost:8090')
-
-
-def _fetch_artemis_public_key() -> Optional[str]:
-    global _artemis_public_key, _artemis_public_key_fetched_at
-    now = time.time()
-    if _artemis_public_key and (now - _artemis_public_key_fetched_at) < _KEY_CACHE_TTL:
-        return _artemis_public_key
-    try:
-        r = httpx.get(f'{ARTEMIS_AUTH_URL}/auth/public-key', timeout=3.0)
-        if r.status_code == 200:
-            _artemis_public_key = r.json()['public_key']
-            _artemis_public_key_fetched_at = now
-            return _artemis_public_key
-    except Exception:
-        pass
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Dual-mode token dependency
-# ---------------------------------------------------------------------------
-
-def _get_token_payload(authorization: Optional[str]) -> TokenData:
-    """Accept both standalone education-planner tokens and Artemis platform tokens."""
-    if not authorization or not authorization.startswith('Bearer '):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Missing token')
-
-    raw = authorization.split(' ', 1)[1]
-
-    try:
-        unverified = jwt.get_unverified_claims(raw)
-    except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid token')
-
-    if unverified.get('iss') == 'artemis-auth':
-        pub_key = _fetch_artemis_public_key()
-        if pub_key:
-            try:
-                payload = jwt.decode(raw, pub_key, algorithms=['RS256'], issuer='artemis-auth')
-                return TokenData(
-                    user_id=payload['sub'],
-                    email=payload.get('email', ''),
-                    jti=payload.get('jti'),
-                    exp=payload.get('exp'),
-                )
-            except JWTError as e:
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f'Invalid Artemis token: {e}')
-        settings = get_settings()
-        if settings.environment != 'production':
-            log.warning('artemis_auth_unavailable_dev_stub')
-            return TokenData(user_id=unverified.get('sub', 'dev-user'), email=unverified.get('email', ''))
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail='Auth service unavailable')
-
-    token_data = decode_token(raw)
-    if not token_data:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid token')
-    return token_data
-
-
-def require_token(authorization: Optional[str] = Header(None)) -> TokenData:
-    return _get_token_payload(authorization)
+require_token = create_artemis_token_dependency(
+    standalone_decoder=decode_token,
+    token_data_class=TokenData,
+)
 
 
 # ---------------------------------------------------------------------------

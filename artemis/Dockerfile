@@ -17,6 +17,8 @@ ENV PYTHONPATH=/app:/app/artemis:$PYTHONPATH
 
 EXPOSE 8080
 
-# Run from the artemis directory to find the main module
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
+
 WORKDIR /app/artemis
 CMD ["uvicorn", "artemis.api.main:app", "--host", "0.0.0.0", "--port", "8080"]

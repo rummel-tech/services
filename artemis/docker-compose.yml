@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
-      POSTGRES_MULTIPLE_DATABASES: auth_db,workout_planner_db,meal_planner_db,home_manager_db,vehicle_manager_db
+      POSTGRES_MULTIPLE_DATABASES: auth_db,workout_planner_db,meal_planner_db,home_manager_db,vehicle_manager_db,work_planner_db,education_planner_db,content_planner_db
     volumes:
       - db_data:/var/lib/postgresql/data
       - ../init-multiple-dbs.sh:/docker-entrypoint-initdb.d/init-multiple-dbs.sh:ro
@@ -156,6 +156,78 @@ services:
     networks:
       - backend
 
+  work-planner:
+    build:
+      context: ..
+      dockerfile: work-planner/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8040:8040"
+    environment:
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-changeme}@db:5432/work_planner_db
+      ARTEMIS_AUTH_URL: http://auth:8090
+      ENVIRONMENT: production
+    depends_on:
+      db:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8040/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+
+  education-planner:
+    build:
+      context: ..
+      dockerfile: education-planner/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8050:8050"
+    environment:
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-changeme}@db:5432/education_planner_db
+      ARTEMIS_AUTH_URL: http://auth:8090
+      ENVIRONMENT: production
+    depends_on:
+      db:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8050/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+
+  content-planner:
+    build:
+      context: ..
+      dockerfile: content-planner/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8060:8060"
+    environment:
+      DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-changeme}@db:5432/content_planner_db
+      ARTEMIS_AUTH_URL: http://auth:8090
+      ENVIRONMENT: production
+    depends_on:
+      db:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8060/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+
   artemis:
     build:
       context: ..
@@ -170,6 +242,9 @@ services:
       MEAL_PLANNER_URL: http://meal-planner:8010
       HOME_MANAGER_URL: http://home-manager:8020
       VEHICLE_MANAGER_URL: http://vehicle-manager:8030
+      WORK_PLANNER_URL: http://work-planner:8040
+      EDUCATION_PLANNER_URL: http://education-planner:8050
+      CONTENT_PLANNER_URL: http://content-planner:8060
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     depends_on:
       auth:
@@ -181,6 +256,12 @@ services:
       home-manager:
         condition: service_healthy
       vehicle-manager:
+        condition: service_healthy
+      work-planner:
+        condition: service_healthy
+      education-planner:
+        condition: service_healthy
+      content-planner:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]

@@ -1,0 +1,149 @@
+name: Security Scan
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'
+  push:
+    branches: [main]
+    paths:
+      - '**/requirements.txt'
+      - '**/pyproject.toml'
+      - '**/Dockerfile'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  bandit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - common
+          - auth
+          - artemis
+          - meal-planner
+          - home-manager
+          - vehicle-manager
+          - workout-planner
+          - work-planner
+          - education-planner
+          - content-planner
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Run Bandit
+        run: |
+          pip install bandit
+          bandit -r ${{ matrix.service }}/ \
+            -f json \
+            -o bandit-${{ matrix.service }}.json \
+            --severity-level medium \
+            --exclude '**/test*,**/.venv' \
+            || true
+
+      - name: Upload Bandit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bandit-${{ matrix.service }}
+          path: bandit-${{ matrix.service }}.json
+          retention-days: 30
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - auth
+          - artemis
+          - meal-planner
+          - home-manager
+          - vehicle-manager
+          - workout-planner
+          - work-planner
+          - education-planner
+          - content-planner
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Audit dependencies
+        run: |
+          pip install pip-audit
+          pip install -r ${{ matrix.service }}/requirements.txt
+          pip-audit --format json --output audit-${{ matrix.service }}.json || true
+
+      - name: Upload audit results
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-${{ matrix.service }}
+          path: audit-${{ matrix.service }}.json
+          retention-days: 30
+
+  container-scan:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - auth
+          - artemis
+          - meal-planner
+          - home-manager
+          - vehicle-manager
+          - workout-planner
+          - work-planner
+          - education-planner
+          - content-planner
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image for scanning
+        run: |
+          if [ -f "${{ matrix.service }}/Dockerfile" ]; then
+            docker build -f ${{ matrix.service }}/Dockerfile -t ${{ matrix.service }}:scan .
+          else
+            echo "::warning::No Dockerfile for ${{ matrix.service }}, skipping scan"
+            exit 0
+          fi
+
+      - name: Run Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ matrix.service }}:scan'
+          format: 'table'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+
+  security-summary:
+    needs: [bandit, dependency-audit, container-scan]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summary
+        run: |
+          echo "## Security Scan Results"
+          echo "- Bandit: ${{ needs.bandit.result }}"
+          echo "- Dependency Audit: ${{ needs.dependency-audit.result }}"
+          echo "- Container Scan: ${{ needs.container-scan.result }}"
+
+          if [[ "${{ needs.bandit.result }}" == "failure" ]] || \
+             [[ "${{ needs.dependency-audit.result }}" == "failure" ]]; then
+            echo "::warning::Security issues detected, review artifacts"
+          fi
