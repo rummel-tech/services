@@ -205,8 +205,35 @@ jobs:
             echo "::warning::No Dockerfile for ${{ matrix.service }}"
           fi
 
+  dependency-audit:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.detect-changes.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Audit dependencies
+        run: |
+          if [ -f "${{ matrix.service }}/requirements.txt" ]; then
+            pip-audit -r ${{ matrix.service }}/requirements.txt --progress-spinner off
+          else
+            echo "::warning::No requirements.txt found for ${{ matrix.service }}"
+          fi
+
   ci-status:
-    needs: [lint, test, docker-build]
+    needs: [lint, test, docker-build, dependency-audit]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -214,7 +241,8 @@ jobs:
         run: |
           if [[ "${{ needs.lint.result }}" == "failure" ]] || \
              [[ "${{ needs.test.result }}" == "failure" ]] || \
-             [[ "${{ needs.docker-build.result }}" == "failure" ]]; then
+             [[ "${{ needs.docker-build.result }}" == "failure" ]] || \
+             [[ "${{ needs.dependency-audit.result }}" == "failure" ]]; then
             echo "::error::CI checks failed"
             exit 1
           fi

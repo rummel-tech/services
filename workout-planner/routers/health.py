@@ -21,6 +21,12 @@ def _auth_bypass() -> bool:
 
 router = APIRouter(prefix="/health", tags=["health"])
 
+# Explicit allowlist of columns that may be set via the UPDATE endpoint.
+# Prevents SQL injection in the dynamically constructed SET clause.
+_HEALTH_METRICS_UPDATABLE_COLS: frozenset = frozenset({
+    "hrv_ms", "resting_hr", "vo2max", "sleep_hours", "weight_kg", "rpe", "soreness", "mood",
+})
+
 class HealthSample(BaseModel):
     user_id: str
     sample_type: str
@@ -243,6 +249,10 @@ def update_health_metrics(metric_id: int, metrics: HealthMetricsUpdate):
     updates = {k: v for k, v in metrics.dict().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
+
+    invalid_cols = set(updates) - _HEALTH_METRICS_UPDATABLE_COLS
+    if invalid_cols:
+        raise HTTPException(status_code=400, detail=f"Invalid fields: {sorted(invalid_cols)}")
 
     placeholder = "?" if USE_SQLITE else "%s"
     set_clause = ", ".join([f"{k} = {placeholder}" for k in updates.keys()])

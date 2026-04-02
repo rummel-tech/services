@@ -54,6 +54,7 @@ from common.database import (
 )
 from core.settings import get_settings
 from routers import artemis as artemis_router
+from routers import healthcheck as healthcheck_router
 from routers.auth import TokenData, require_token
 
 settings = get_settings()
@@ -357,6 +358,7 @@ async def get_vehicle_stats(vehicle_id: UUID, token: TokenData = Depends(require
 
 
 app.include_router(artemis_router.router, prefix=config.api_prefix)
+app.include_router(healthcheck_router.router, prefix=config.api_prefix)
 app.include_router(router, prefix=config.api_prefix)
 
 if __name__ == "__main__":

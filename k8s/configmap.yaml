@@ -1,0 +1,14 @@
+---
+# ConfigMap for shared non-secret environment variables.
+# Secrets (DB passwords, JWT keys, etc.) must be injected via Kubernetes Secrets
+# or AWS Secrets Manager — never hardcoded here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: services-config
+  namespace: default
+data:
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "info"
+  DEBUG: "false"
+  REDIS_ENABLED: "false"

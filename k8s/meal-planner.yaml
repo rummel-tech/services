@@ -1,0 +1,71 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: meal-planner
+  namespace: default
+  labels:
+    app: meal-planner
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: meal-planner
+  template:
+    metadata:
+      labels:
+        app: meal-planner
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+      containers:
+        - name: meal-planner
+          image: rummeltech/meal-planner:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8010
+          envFrom:
+            - configMapRef:
+                name: services-config
+            - secretRef:
+                name: services-secrets
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8010
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8010
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: meal-planner
+  namespace: default
+  labels:
+    app: meal-planner
+spec:
+  selector:
+    app: meal-planner
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8010
+  type: ClusterIP

@@ -1,7 +1,10 @@
 """HTTP client utilities for backend service communication."""
+import logging
 import httpx
 from typing import Any, Dict, Optional
 from fastapi import HTTPException
+
+log = logging.getLogger(__name__)
 
 
 class ServiceClient:
@@ -154,5 +157,6 @@ class ServiceClient:
         try:
             response = await self.client.get(f"{self.base_url}/health", timeout=5.0)
             return response.status_code == 200
-        except:
+        except Exception as e:
+            log.warning("health_check_failed", extra={"base_url": self.base_url, "error": str(e)})
             return False

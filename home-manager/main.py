@@ -51,6 +51,7 @@ from common.database import (
 )
 from core.settings import get_settings
 from routers import artemis as artemis_router
+from routers import healthcheck as healthcheck_router
 from routers.auth import TokenData, require_token
 
 settings = get_settings()
@@ -80,6 +81,13 @@ app = create_app(config)
 router = APIRouter()
 
 USE_SQLITE = is_sqlite(get_database_url())
+
+# Explicit allowlist of task columns that may be set via the UPDATE endpoint.
+# Prevents SQL injection in the dynamically constructed SET clause.
+_TASK_UPDATABLE_COLS: frozenset = frozenset({
+    "title", "description", "status", "priority", "category",
+    "due_date", "completed_at", "estimated_minutes", "tags", "context",
+})
 
 
 def _parse_row(row_dict: dict) -> dict:
@@ -154,6 +162,10 @@ async def update_task(user_id: str, task_id: UUID, task_update: TaskUpdate, toke
     updates = {k: v for k, v in task_update.dict().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
+
+    invalid_cols = set(updates) - _TASK_UPDATABLE_COLS
+    if invalid_cols:
+        raise HTTPException(status_code=400, detail=f"Invalid fields: {sorted(invalid_cols)}")
 
     set_parts = []
     values = []
@@ -296,6 +308,7 @@ async def create_asset(asset: AssetCreate, token: TokenData = Depends(require_to
 
 
 app.include_router(artemis_router.router, prefix=config.api_prefix)
+app.include_router(healthcheck_router.router, prefix=config.api_prefix)
 app.include_router(router, prefix=config.api_prefix)
 
 

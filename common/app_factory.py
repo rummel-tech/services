@@ -273,9 +273,16 @@ def create_app(config: ServiceConfig) -> FastAPI:
         # Run custom startup hooks
         for hook in config.on_startup:
             if callable(hook):
-                result = hook()
-                if hasattr(result, '__await__'):
-                    await result
+                try:
+                    result = hook()
+                    if hasattr(result, '__await__'):
+                        await result
+                except Exception as exc:
+                    log.error(
+                        "startup_hook_failed",
+                        extra={"hook": getattr(hook, "__name__", repr(hook)), "error": str(exc)},
+                    )
+                    raise
 
     @app.on_event("shutdown")
     async def shutdown():

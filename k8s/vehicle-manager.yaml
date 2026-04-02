@@ -1,0 +1,71 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vehicle-manager
+  namespace: default
+  labels:
+    app: vehicle-manager
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: vehicle-manager
+  template:
+    metadata:
+      labels:
+        app: vehicle-manager
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+      containers:
+        - name: vehicle-manager
+          image: rummeltech/vehicle-manager:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8030
+          envFrom:
+            - configMapRef:
+                name: services-config
+            - secretRef:
+                name: services-secrets
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8030
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8030
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vehicle-manager
+  namespace: default
+  labels:
+    app: vehicle-manager
+spec:
+  selector:
+    app: vehicle-manager
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8030
+  type: ClusterIP
