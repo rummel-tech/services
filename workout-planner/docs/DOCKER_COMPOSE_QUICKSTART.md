@@ -9,10 +9,10 @@
 
 ## Quick Start (Development)
 
-### 1. Clone & Navigate
+### 1. Navigate to the Service
 
 ```bash
-cd /home/shawn/APP_DEV/workout-planner/applications/backend/python_fastapi_server
+cd workout-planner
 ```
 
 ### 2. Set Environment Variables

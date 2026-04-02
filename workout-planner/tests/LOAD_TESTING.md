@@ -23,7 +23,7 @@ This guide explains how to perform load testing on the Workout Planner API using
 Run Locust with the web interface for real-time monitoring:
 
 ```bash
-cd /home/shawn/APP_DEV/workout-planner/applications/backend/python_fastapi_server
+cd workout-planner
 source .venv/bin/activate
 locust -f tests/locustfile.py --host=http://localhost:8000
 ```

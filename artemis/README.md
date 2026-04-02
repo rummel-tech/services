@@ -1,169 +1,112 @@
-# Artemis Personal OS
+# Artemis Platform Service
 
-Artemis is a personal operating system for efficiently achieving goals across multiple life domains. It provides a single pane of glass solution with integrated modules for:
+Central platform hub that discovers, orchestrates, and aggregates data from all Artemis-compatible microservices. It exposes a unified dashboard API and a Claude-powered AI agent.
 
-- **Work Management**: Task tracking, project management, and productivity
-- **Fitness**: Workout logging and fitness goal tracking
-- **Nutrition**: Meal planning, nutrition tracking, and recipe management
-- **Entrepreneurship**: Business ventures, ideas, and milestone tracking
-- **Finance**: Budget management, transaction tracking, and financial goals
-- **Assets**: Management of physical assets (home, car, motorcycle, etc.)
+**Port:** 8080
 
-## Architecture
+## Overview
 
-Artemis uses a multi-layered architecture:
+Artemis is stateless — it owns no user data. It fans out requests to registered module services and merges their responses. Modules register themselves via a YAML config file; Artemis polls each module's `/artemis/manifest` endpoint to discover capabilities.
 
-### Backend (Python)
-- **Core Module System**: Plugin-based architecture with base module interface
-- **Module Registry**: Central registry for module management and integration
-- **REST API**: FastAPI-based API for module interaction
-- **Modules**: Six domain-specific modules (work, fitness, nutrition, entrepreneurship, finance, assets)
-
-### Frontend (Flutter/Dart)
-- **Cross-platform UI**: Single codebase for web and mobile (iOS/Android)
-- **Single Pane of Glass**: Unified interface across all modules
-- **Responsive Design**: Adapts to different screen sizes
-- **API Integration**: Communicates with backend via REST API
+**Core responsibilities:**
+- Module registry: discover and health-check all registered modules on startup
+- Dashboard aggregation: fan out to all module widget and summary endpoints
+- AI agent: Claude-powered assistant with tools auto-generated from module manifests
+- Token relay: forward the user's RS256 JWT to every module call
 
 ## Quick Start
 
-### Backend Setup
-
-1. Install Python dependencies:
 ```bash
+cd artemis
 pip install -r requirements.txt
+ARTEMIS_AUTH_URL=http://localhost:8090 \
+ANTHROPIC_API_KEY=<your-key> \
+uvicorn main:app --port 8080 --reload
 ```
 
-2. Run the API server:
-```bash
-python run_server.py
-```
-
-The API will be available at `http://localhost:8000`
-
-### Flutter App Setup
-
-1. Navigate to the Flutter app directory:
-```bash
-cd artemis_app
-```
-
-2. Install dependencies:
-```bash
-flutter pub get
-```
-
-3. Run the app:
-```bash
-# For web
-flutter run -d chrome
-
-# For mobile (with device/emulator connected)
-flutter run
-```
-
-## API Documentation
-
-Once the backend is running, visit:
-- API Documentation: `http://localhost:8000/docs`
-- Alternative Documentation: `http://localhost:8000/redoc`
+Without `ARTEMIS_AUTH_URL` set the service runs in dev fallback mode (no real auth check).
 
 ## Project Structure
 
 ```
 artemis/
-├── src/artemis/          # Python backend
-│   ├── core/             # Core module system
-│   ├── modules/          # Domain modules
-│   └── api/              # FastAPI application
-├── artemis_app/          # Flutter application
-│   ├── lib/
-│   │   ├── models/       # Data models
-│   │   ├── services/     # API services
-│   │   ├── screens/      # UI screens
-│   │   └── widgets/      # Reusable widgets
-│   └── test/             # Flutter tests
-├── tests/                # Python tests
-├── requirements.txt      # Python dependencies
-└── pyproject.toml        # Project configuration
+├── main.py                  # Application entry point
+├── artemis/                 # Core platform logic
+│   ├── agent.py             # Claude AI agent
+│   ├── dashboard.py         # Dashboard aggregation
+│   ├── registry.py          # Module registry
+│   └── routers/             # API routers
+├── config/
+│   └── modules.yaml         # Registered module configuration
+├── tests/                   # Test suite
+├── requirements.txt
+└── pyproject.toml
 ```
 
-## Module Actions
+## Module Configuration
 
-Each module supports specific actions. Examples:
+Edit `config/modules.yaml` to add, remove, or disable modules:
 
-### Work Module
-- `create_task`: Create a new task
-- `create_project`: Create a new project
-- `list_tasks`: List all tasks
-- `list_projects`: List all projects
+```yaml
+modules:
+  - id: workout-planner
+    manifest_url: http://localhost:8000/artemis/manifest
+    prod_manifest_url: https://api.rummeltech.com/workout-planner/artemis/manifest
+    enabled: true
 
-### Fitness Module
-- `log_workout`: Log a workout
-- `set_goal`: Set a fitness goal
-- `list_workouts`: List all workouts
-- `list_goals`: List all fitness goals
+  - id: meal-planner
+    manifest_url: http://localhost:8010/artemis/manifest
+    prod_manifest_url: https://api.rummeltech.com/meal-planner/artemis/manifest
+    enabled: true
+```
 
-### Nutrition Module
-- `log_meal`: Log a meal
-- `add_recipe`: Add a recipe
-- `set_goal`: Set a nutrition goal
-- `list_meals`: List all meals
+## Endpoints
 
-### Entrepreneurship Module
-- `create_venture`: Create a business venture
-- `add_idea`: Add a business idea
-- `set_milestone`: Set a milestone
-- `list_ventures`: List all ventures
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/artemis/modules` | Bearer | List all registered modules and their status |
+| GET | `/artemis/dashboard/{user_id}` | Bearer | Aggregated dashboard from all modules |
+| POST | `/artemis/agent` | Bearer | Chat with the AI agent |
+| GET | `/health` | No | Health check |
+| GET | `/ready` | No | Readiness check |
 
-### Finance Module
-- `add_transaction`: Add a transaction
-- `create_budget`: Create a budget
-- `set_goal`: Set a financial goal
-- `list_transactions`: List all transactions
+## Environment Variables
 
-### Assets Module
-- `add_asset`: Add an asset
-- `log_maintenance`: Log maintenance
-- `add_document`: Add a document
-- `list_assets`: List all assets
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ARTEMIS_AUTH_URL` | `http://localhost:8090` | Auth service URL for public key fetch |
+| `MODULES_CONFIG` | `config/modules.yaml` | Path to module registry config |
+| `REGISTRY_REFRESH_SECONDS` | `300` | Background manifest re-poll interval (0 = disabled) |
+| `ANTHROPIC_API_KEY` | — | Required for the AI agent |
+| `AGENT_MODEL` | `claude-sonnet-4-6` | Claude model for the AI agent |
+| `ENVIRONMENT` | `development` | Set to `production` for strict auth enforcement |
 
-## Development
+## Authentication
 
-### Running Tests
+All data endpoints require a Bearer JWT issued by the auth service (`iss: artemis-auth`, RS256). In development, auth is bypassed when `ARTEMIS_AUTH_URL` is not set.
 
-Python tests:
+## Docker
+
 ```bash
+# From services/ root
+docker build -f artemis/Dockerfile -t artemis .
+docker run -p 8080:8080 \
+  -e ARTEMIS_AUTH_URL=http://host.docker.internal:8090 \
+  -e ANTHROPIC_API_KEY=<your-key> \
+  artemis
+```
+
+## Docker Compose
+
+```bash
+# From services/ root
+docker compose up artemis
+```
+
+## Running Tests
+
+```bash
+cd artemis
+pip install -r requirements.txt
 pytest
 ```
-
-Flutter tests:
-```bash
-cd artemis_app
-flutter test
-```
-
-### Code Quality
-
-Python linting:
-```bash
-black src/
-ruff check src/
-mypy src/
-```
-
-## Documentation
-
-- [Objectives](./OBJECTIVES.md) - Goals, requirements, and success criteria
-- [Architecture](docs/ARCHITECTURE.md) - System design
-- [Implementation](docs/IMPLEMENTATION.md) - Implementation details
-- [Deployment](docs/DEPLOYMENT.md) - Deployment guide
-- [Changelog](./CHANGELOG.md) - Version history
-
-## License
-
-MIT License - see LICENSE file for details
-
----
-
-[Platform Documentation](../docs/) | [Product Overview](../docs/products/artemis.md)

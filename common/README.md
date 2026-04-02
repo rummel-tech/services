@@ -8,7 +8,13 @@ The `common` package provides standardized functionality across all services in 
 
 ## Installation
 
-This package is used by adding the parent `services` directory to the Python path:
+Install the package in editable mode from the `services/` root so any service can import it:
+
+```bash
+pip install -e ../common
+```
+
+Services add the parent directory to the Python path in their `main.py` for development:
 
 ```python
 import sys
@@ -193,7 +199,10 @@ async def get_example():
 
 ## Services Using This Package
 
+- **Workout Planner** (port 8000)
 - **Meal Planner** (port 8010)
 - **Home Manager** (port 8020)
 - **Vehicle Manager** (port 8030)
-- **Workout Planner** (port 8000)
+- **Work Planner** (port 8040)
+- **Education Planner** (port 8050)
+- **Content Planner** (port 8060)
