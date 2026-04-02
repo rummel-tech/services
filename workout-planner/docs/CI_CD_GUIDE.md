@@ -123,7 +123,7 @@ The backend has comprehensive CI/CD automation using GitHub Actions:
 ### Running Tests
 
 ```bash
-cd /home/shawn/APP_DEV/workout-planner/applications/backend/python_fastapi_server
+cd workout-planner
 
 # Activate virtual environment
 source .venv/bin/activate
@@ -190,17 +190,17 @@ flake8 . --exclude=.venv,htmlcov,__pycache__
 # Trigger test workflow
 gh workflow run test-workout-planner-backend.yml \
   --ref main \
-  --repo srummel/infrastructure
+  --repo rummel-tech/services
 
 # Trigger security scan
 gh workflow run security-scan-workout-planner.yml \
   --ref main \
-  --repo srummel/infrastructure
+  --repo rummel-tech/services
 
 # Trigger deployment
 gh workflow run deploy-workout-planner-backend.yml \
   --ref main \
-  --repo srummel/infrastructure
+  --repo rummel-tech/services
 ```
 
 ### Using repository_dispatch
@@ -210,7 +210,7 @@ gh workflow run deploy-workout-planner-backend.yml \
 curl -X POST \
   -H "Accept: application/vnd.github+json" \
   -H "Authorization: Bearer $GITHUB_TOKEN" \
-  https://api.github.com/repos/srummel/infrastructure/dispatches \
+  https://api.github.com/repos/rummel-tech/services/dispatches \
   -d '{"event_type":"test-workout-planner-backend","client_payload":{"ref":"main"}}'
 ```
 
@@ -306,8 +306,8 @@ Common failure reasons:
 
 ```bash
 # Using GitHub CLI
-gh run list --repo srummel/infrastructure
-gh run download <run_id> --repo srummel/infrastructure
+gh run list --repo rummel-tech/services
+gh run download <run_id> --repo rummel-tech/services
 
 # Or download from GitHub UI
 # Actions → Select workflow run → Artifacts section
@@ -517,9 +517,9 @@ gh workflow run test-workout-planner-backend.yml --ref main
 
 ### CI/CD Files
 
-- `/home/shawn/APP_DEV/infrastructure/.github/workflows/test-workout-planner-backend.yml`
-- `/home/shawn/APP_DEV/infrastructure/.github/workflows/security-scan-workout-planner.yml`
-- `/home/shawn/APP_DEV/infrastructure/.github/workflows/deploy-workout-planner-backend.yml`
+- `.github/workflows/test-workout-planner-backend.yml`
+- `.github/workflows/security-scan-workout-planner.yml`
+- `.github/workflows/deploy-workout-planner-backend.yml`
 
 ### Documentation
 
@@ -529,5 +529,4 @@ gh workflow run test-workout-planner-backend.yml --ref main
 
 ---
 
-**Last Updated**: 2025-11-20
-**Next Review**: 2025-12-20
+**Last Updated**: 2026-04-02

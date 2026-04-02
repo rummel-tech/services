@@ -51,11 +51,8 @@ workout-planner/
 ├── docs/                      # Documentation
 │   ├── CACHING_STRATEGY.md
 │   ├── CI_CD_GUIDE.md
-│   ├── DEPLOY_TRIGGER.md
 │   ├── DOCKER_COMPOSE_QUICKSTART.md
-│   ├── PERFORMANCE_BASELINE.md
-│   ├── REDIS_TOKEN_BLACKLIST.md
-│   └── SECURITY_REPORT.md
+│   └── REDIS_TOKEN_BLACKLIST.md
 ├── Dockerfile                 # Container definition
 ├── docker-compose.yml         # Local development setup
 ├── pyproject.toml             # Project metadata & dependencies
@@ -126,12 +123,6 @@ Your Prometheus configuration would then need to scrape both the application's `
 
 ## Logging
 Structured logs include correlation IDs (`X-Request-ID` header) for traceability.
-
-## Future Hardening
-- JWT auth enforcement across protected endpoints.
-- Rate limiting & API keys.
-- Managed migrations instead of auto-init.
-- Background tasks queue (Celery / RQ) for heavy AI ops.
 
 ## Troubleshooting
 | Symptom | Cause | Fix |

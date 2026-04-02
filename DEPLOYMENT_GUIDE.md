@@ -30,11 +30,14 @@ The following infrastructure must exist (created via Terraform):
 
 | Service | Port | Database | Dependencies |
 |---------|------|----------|--------------|
-| auth | 8090 | N/A | none |
+| auth | 8090 | PostgreSQL | none |
 | workout-planner | 8000 | PostgreSQL | common |
 | home-manager | 8020 | PostgreSQL | common |
 | vehicle-manager | 8030 | PostgreSQL | common |
 | meal-planner | 8010 | PostgreSQL | common, workout-planner (optional) |
+| work-planner | 8040 | PostgreSQL | common |
+| education-planner | 8050 | PostgreSQL | common |
+| content-planner | 8060 | PostgreSQL | common |
 | artemis | 8080 | N/A (Gateway) | auth + all module services |
 
 ## Pre-Deployment Steps
@@ -42,7 +45,7 @@ The following infrastructure must exist (created via Terraform):
 ### 1. Run Pre-Flight Checks
 
 ```bash
-cd /home/shawn/_Projects/services
+cd <repo-root>/services
 chmod +x deployment-preflight.sh
 ./deployment-preflight.sh
 ```
@@ -59,7 +62,7 @@ This validates:
 If infrastructure hasn't been created yet:
 
 ```bash
-cd /home/shawn/_Projects/infrastructure/terraform
+cd <infrastructure-repo>/terraform
 
 # Initialize Terraform
 terraform init
@@ -85,13 +88,13 @@ Each module service needs a `DATABASE_URL` secret in AWS Secrets Manager:
 
 ```bash
 # Get the RDS endpoint from Terraform output
-DB_ENDPOINT=$(cd /home/shawn/_Projects/infrastructure/terraform && terraform output -raw db_endpoint)
+DB_ENDPOINT=$(cd <infrastructure-repo>/terraform && terraform output -raw db_endpoint)
 
 # Format: postgresql://username:password@endpoint:5432/dbname
 DATABASE_URL="postgresql://admin:YOUR_PASSWORD@${DB_ENDPOINT}:5432/artemis"
 
 # Create secrets for each service
-for svc in workout-planner home-manager vehicle-manager meal-planner; do
+for svc in workout-planner home-manager vehicle-manager meal-planner work-planner education-planner content-planner; do
   aws secretsmanager create-secret \
     --name "staging/${svc}/database_url" \
     --secret-string "$DATABASE_URL" \
@@ -137,14 +140,14 @@ git push origin main
 
 The workflow (`services/.github/workflows/deploy-services.yml`) auto-detects which services changed on push to `main` and only deploys those. To force-deploy a specific service use `workflow_dispatch` with the `service` input.
 
-Available service inputs: `auth`, `workout-planner`, `home-manager`, `vehicle-manager`, `meal-planner`, `artemis`
+Available service inputs: `auth`, `workout-planner`, `home-manager`, `vehicle-manager`, `meal-planner`, `work-planner`, `education-planner`, `content-planner`, `artemis`
 
 ### Method 2: Deploy All Services Script
 
 ```bash
 #!/bin/bash
 # Deploy all services in dependency order
-SERVICES=("auth" "workout-planner" "home-manager" "vehicle-manager" "meal-planner" "artemis")
+SERVICES=("auth" "workout-planner" "home-manager" "vehicle-manager" "meal-planner" "work-planner" "education-planner" "content-planner" "artemis")
 
 for service in "${SERVICES[@]}"; do
     echo "Deploying $service to staging..."
@@ -165,7 +168,10 @@ done
 3. **home-manager** (standalone module)
 4. **vehicle-manager** (standalone module)
 5. **meal-planner** (optionally consumes workout-planner data)
-6. **artemis** (gateway — depends on auth + all module services)
+6. **work-planner** (standalone module)
+7. **education-planner** (standalone module)
+8. **content-planner** (standalone module)
+9. **artemis** (gateway — depends on auth + all module services)
 
 ## Post-Deployment Validation
 
@@ -175,7 +181,7 @@ done
 # Check all services
 aws ecs describe-services \
   --cluster staging-cluster \
-  --services staging-auth-service staging-workout-planner-service staging-home-manager-service staging-vehicle-manager-service staging-meal-planner-service staging-artemis-service \
+  --services staging-auth-service staging-workout-planner-service staging-home-manager-service staging-vehicle-manager-service staging-meal-planner-service staging-work-planner-service staging-education-planner-service staging-content-planner-service staging-artemis-service \
   --region us-east-1 \
   --query 'services[*].[serviceName,status,runningCount,desiredCount]' \
   --output table
@@ -192,7 +198,7 @@ aws logs tail /ecs/staging-<service> --follow --region us-east-1
 
 Get the ALB DNS name:
 ```bash
-ALB_DNS=$(cd /home/shawn/_Projects/infrastructure/terraform && terraform output -raw alb_dns_name)
+ALB_DNS=$(cd <infrastructure-repo>/terraform && terraform output -raw alb_dns_name)
 ```
 
 Health and readiness endpoints are unauthenticated:
@@ -202,6 +208,9 @@ curl http://${ALB_DNS}/workout-planner/health
 curl http://${ALB_DNS}/home-manager/health
 curl http://${ALB_DNS}/vehicle-manager/health
 curl http://${ALB_DNS}/meal-planner/health
+curl http://${ALB_DNS}/work-planner/health
+curl http://${ALB_DNS}/education-planner/health
+curl http://${ALB_DNS}/content-planner/health
 curl http://${ALB_DNS}/artemis/health
 # All should return: {"status":"healthy","service":"<name>"}
 ```
@@ -222,7 +231,7 @@ curl -H "Authorization: Bearer $TOKEN" http://${ALB_DNS}/artemis/dashboard/summa
 
 Manifests are unauthenticated — verify all modules registered correctly:
 ```bash
-for svc in workout-planner home-manager vehicle-manager meal-planner; do
+for svc in workout-planner home-manager vehicle-manager meal-planner work-planner education-planner content-planner; do
   echo "=== $svc ==="
   curl -s http://${ALB_DNS}/${svc}/artemis/manifest | jq '.module.id'
 done
@@ -292,7 +301,7 @@ Common issues:
 
 Test locally:
 ```bash
-cd /home/shawn/_Projects/services
+cd <repo-root>/services
 docker build -f home-manager/Dockerfile -t test-home-manager .
 docker run -p 8020:8020 -e DATABASE_URL=sqlite:///./test.db test-home-manager
 ```
