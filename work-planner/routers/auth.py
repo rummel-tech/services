@@ -4,7 +4,7 @@ import os
 import uuid
 import time
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -288,7 +288,7 @@ async def create_registration_code(
     expires_at = None
     if expires_days:
         from datetime import timedelta
-        expires_at = (datetime.utcnow() + timedelta(days=expires_days)).isoformat()
+        expires_at = (datetime.now(timezone.utc) + timedelta(days=expires_days)).isoformat()
     with get_db() as conn:
         cur = get_cursor(conn)
         cur.execute(

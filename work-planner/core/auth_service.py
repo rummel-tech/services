@@ -1,6 +1,6 @@
 """Authentication service with JWT token management and password hashing."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import uuid
 import os
@@ -9,7 +9,11 @@ from jose import JWTError, jwt
 import bcrypt
 from pydantic import BaseModel, EmailStr, field_validator
 
-JWT_SECRET = os.getenv('JWT_SECRET', 'your-secret-key-change-in-production-min-32-chars')
+JWT_SECRET = os.getenv('JWT_SECRET')
+if not JWT_SECRET:
+    if os.getenv('ENVIRONMENT', 'development') == 'production':
+        raise ValueError('JWT_SECRET environment variable must be set in production')
+    JWT_SECRET = 'dev-only-insecure-secret-do-not-use-in-production'
 ALGORITHM = 'HS256'
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24   # 24 hours
 REFRESH_TOKEN_EXPIRE_DAYS = 30
@@ -81,7 +85,7 @@ def get_password_hash(password: str) -> str:
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create JWT access token."""
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({'exp': expire, 'type': 'access', 'jti': str(uuid.uuid4())})
     return jwt.encode(to_encode, JWT_SECRET, algorithm=ALGORITHM)
 
@@ -89,7 +93,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
 def create_refresh_token(data: dict) -> str:
     """Create JWT refresh token with longer expiry."""
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({'exp': expire, 'type': 'refresh', 'jti': str(uuid.uuid4())})
     return jwt.encode(to_encode, JWT_SECRET, algorithm=ALGORITHM)
 

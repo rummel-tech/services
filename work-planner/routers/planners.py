@@ -3,7 +3,7 @@
 import uuid
 import json
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -132,7 +132,7 @@ async def update_day_planner(
         dp_id = row['id']
         raw = updates.model_dump(exclude_none=True)
         if raw:
-            raw['updated_at'] = datetime.utcnow().isoformat()
+            raw['updated_at'] = datetime.now(timezone.utc).isoformat()
             set_clause = ', '.join(f'{k} = ?' for k in raw)
             cur.execute(f'UPDATE day_planners SET {set_clause} WHERE id = ?', [*raw.values(), dp_id])
             conn.commit()
@@ -194,7 +194,7 @@ async def update_task(
 
         raw = updates.model_dump(exclude_none=True)
         if raw:
-            raw['updated_at'] = datetime.utcnow().isoformat()
+            raw['updated_at'] = datetime.now(timezone.utc).isoformat()
             set_clause = ', '.join(f'{k} = ?' for k in raw)
             cur.execute(
                 f'UPDATE tasks SET {set_clause} WHERE id = ? AND user_id = ?',
@@ -355,7 +355,7 @@ async def update_week_planner(
         if 'weekly_goals' in raw:
             raw['weekly_goals'] = json.dumps(raw['weekly_goals'])
         if raw:
-            raw['updated_at'] = datetime.utcnow().isoformat()
+            raw['updated_at'] = datetime.now(timezone.utc).isoformat()
             set_clause = ', '.join(f'{k} = ?' for k in raw)
             cur.execute(f'UPDATE week_planners SET {set_clause} WHERE id = ?', [*raw.values(), wp_id])
             conn.commit()

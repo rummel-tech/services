@@ -1,6 +1,7 @@
 """Database connection management — PostgreSQL with SQLite fallback for development."""
 
 import os
+import re
 import sqlite3
 import logging
 import threading
@@ -180,11 +181,48 @@ def get_db():
             _pg_pool.putconn(conn)
 
 
-def get_cursor(conn):
+class _QueryAdapterCursor:
+    """Cursor wrapper that translates SQLite-style ? placeholders to %s for PostgreSQL."""
+
+    # Matches single-quoted string literals OR a bare ? placeholder.
+    # The replacement callback leaves string literals unchanged and converts ? to %s.
+    _PLACEHOLDER_RE = re.compile(r"'[^']*'|(\?)")
+
+    def __init__(self, cursor, use_sqlite: bool):
+        self._cur = cursor
+        self._use_sqlite = use_sqlite
+
+    @classmethod
+    def _adapt(cls, query: str) -> str:
+        """Replace ? placeholders with %s, leaving ? inside string literals intact."""
+        def _replace(m: re.Match) -> str:
+            return '%s' if m.group(1) is not None else m.group(0)
+        return cls._PLACEHOLDER_RE.sub(_replace, query)
+
+    def execute(self, query: str, params=None):
+        if not self._use_sqlite:
+            query = self._adapt(query)
+        if params is not None:
+            self._cur.execute(query, params)
+        else:
+            self._cur.execute(query)
+        return self
+
+    def fetchone(self):
+        return self._cur.fetchone()
+
+    def fetchall(self):
+        return self._cur.fetchall()
+
+    def __getattr__(self, name):
+        return getattr(self._cur, name)
+
+
+def get_cursor(conn) -> _QueryAdapterCursor:
     """Return the appropriate cursor type for the current DB backend."""
     if USE_SQLITE:
-        return conn.cursor()
-    return conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        return _QueryAdapterCursor(conn.cursor(), use_sqlite=True)
+    return _QueryAdapterCursor(conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor), use_sqlite=False)
 
 
 # Initialise SQLite on import when running in dev mode
