@@ -262,10 +262,8 @@ No code changes required in the platform service itself.
 
 | Issue | Severity | Notes |
 |-------|----------|-------|
-| No ECS task definition in Terraform | High | Must be added before production deploy |
+| No ECS task definition in Terraform | High | Must be added to `rummel-tech/infrastructure` before production deploy |
 | Agent WebSocket doesn't stream natively | Low | Currently buffers full response then chunks text. Use streaming SDK for true streaming |
-| Per-user module filtering missing | Low | All users see all healthy modules; should filter dashboard/tools by `token.modules` claim |
-| No per-user module filtering | Low | All users see all healthy modules; should filter by `token.modules` claim |
 
 ---
 

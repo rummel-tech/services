@@ -99,13 +99,23 @@ class ModuleRegistry:
 
     async def initialize(self) -> None:
         """Load config and poll all modules on startup."""
+        settings = get_settings()
+        use_prod = settings.environment == "production"
         entries = self._load_config()
         for entry in entries:
             if not entry.get("enabled", True):
                 continue
+            manifest_url = (
+                entry.get("prod_manifest_url")
+                if use_prod and entry.get("prod_manifest_url")
+                else entry.get("manifest_url")
+            )
+            if not manifest_url:
+                log.warning(f"module '{entry.get('id', '?')}' has no manifest_url — skipping")
+                continue
             mod = RegisteredModule(
                 module_id=entry["id"],
-                manifest_url=entry["manifest_url"],
+                manifest_url=manifest_url,
                 enabled=True,
             )
             self._modules[mod.id] = mod

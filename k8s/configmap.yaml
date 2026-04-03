@@ -12,3 +12,7 @@ data:
   LOG_LEVEL: "info"
   DEBUG: "false"
   REDIS_ENABLED: "false"
+  # Artemis platform
+  ARTEMIS_AUTH_URL: "http://auth"
+  MODULES_CONFIG: "config/modules.yaml"
+  REGISTRY_REFRESH_SECONDS: "300"
