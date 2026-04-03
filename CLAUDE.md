@@ -104,5 +104,6 @@ compat but should not be used in new code.
 | vehicle-manager | 8030 |
 | work-planner | 8040 |
 | education-planner | 8050 |
+| content-planner | 8060 |
 | artemis (platform) | 8080 |
 | auth | 8090 |
