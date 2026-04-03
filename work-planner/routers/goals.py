@@ -2,7 +2,7 @@
 
 import uuid
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -108,7 +108,7 @@ async def update_goal(
 
         fields = {k: v for k, v in updates.model_dump().items() if v is not None}
         if fields:
-            fields['updated_at'] = datetime.utcnow().isoformat()
+            fields['updated_at'] = datetime.now(timezone.utc).isoformat()
             set_clause = ', '.join(f'{k} = ?' for k in fields)
             cur.execute(
                 f'UPDATE goals SET {set_clause} WHERE id = ? AND user_id = ?',

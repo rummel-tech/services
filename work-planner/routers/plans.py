@@ -3,7 +3,7 @@
 import uuid
 import json
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -119,7 +119,7 @@ async def update_plan(
         if 'steps' in raw:
             raw['steps'] = json.dumps(raw['steps'])
         if raw:
-            raw['updated_at'] = datetime.utcnow().isoformat()
+            raw['updated_at'] = datetime.now(timezone.utc).isoformat()
             set_clause = ', '.join(f'{k} = ?' for k in raw)
             cur.execute(
                 f'UPDATE plans SET {set_clause} WHERE id = ? AND user_id = ?',
