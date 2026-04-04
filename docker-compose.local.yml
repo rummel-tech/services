@@ -1,0 +1,40 @@
+# Local development: runs ONLY the Artemis backend.
+# All module services and auth are expected to already be running in staging.
+#
+# Usage:
+#   1. Copy .env.local.example to .env.local and fill in staging URLs
+#   2. docker compose -f docker-compose.local.yml --env-file .env.local up
+#
+# Run from the services/ root directory.
+
+services:
+  artemis:
+    build:
+      context: .
+      dockerfile: artemis/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      ENVIRONMENT: development
+      LOG_LEVEL: debug
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+
+      # Auth and module services — point at staging
+      ARTEMIS_AUTH_URL: ${STAGING_AUTH_URL}
+      WORKOUT_PLANNER_URL: ${STAGING_WORKOUT_PLANNER_URL}
+      MEAL_PLANNER_URL: ${STAGING_MEAL_PLANNER_URL}
+      HOME_MANAGER_URL: ${STAGING_HOME_MANAGER_URL}
+      VEHICLE_MANAGER_URL: ${STAGING_VEHICLE_MANAGER_URL}
+      WORK_PLANNER_URL: ${STAGING_WORK_PLANNER_URL}
+      EDUCATION_PLANNER_URL: ${STAGING_EDUCATION_PLANNER_URL}
+      CONTENT_PLANNER_URL: ${STAGING_CONTENT_PLANNER_URL}
+    volumes:
+      # Mount source for live reload during development
+      - ./artemis:/app/artemis:ro
+      - ./common:/app/common:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5

@@ -48,11 +48,16 @@ else
 fi
 echo ""
 
-# Services to deploy in order
+# Services to deploy in order (auth first, modules second, artemis last)
 SERVICES=(
+    "auth:8090"
+    "workout-planner:8000"
+    "meal-planner:8010"
     "home-manager:8020"
     "vehicle-manager:8030"
-    "meal-planner:8010"
+    "work-planner:8040"
+    "education-planner:8050"
+    "content-planner:8060"
     "artemis:8080"
 )
 
@@ -126,15 +131,20 @@ echo ""
 echo "3. Check service status (after ~5 minutes):"
 echo "   aws ecs describe-services \\"
 echo "     --cluster staging-cluster \\"
-echo "     --services staging-home-manager-service staging-vehicle-manager-service staging-meal-planner-service staging-artemis-service \\"
+echo "     --services staging-auth-service staging-workout-planner-service staging-meal-planner-service staging-home-manager-service staging-vehicle-manager-service staging-work-planner-service staging-education-planner-service staging-content-planner-service staging-artemis-service \\"
 echo "     --region us-east-1"
 echo ""
 echo "4. View logs:"
 echo "   aws logs tail /ecs/staging-<service-name> --follow --region us-east-1"
 echo ""
 echo "5. Test health endpoints:"
+echo "   curl http://<ALB_DNS>/auth/health"
+echo "   curl http://<ALB_DNS>/workout-planner/health"
+echo "   curl http://<ALB_DNS>/meal-planner/health"
 echo "   curl http://<ALB_DNS>/home-manager/health"
 echo "   curl http://<ALB_DNS>/vehicle-manager/health"
-echo "   curl http://<ALB_DNS>/meal-planner/health"
+echo "   curl http://<ALB_DNS>/work-planner/health"
+echo "   curl http://<ALB_DNS>/education-planner/health"
+echo "   curl http://<ALB_DNS>/content-planner/health"
 echo "   curl http://<ALB_DNS>/artemis/health"
 echo ""
