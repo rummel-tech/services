@@ -17,7 +17,7 @@ Artemis is stateless — it owns no user data. It fans out requests to registere
 ## Quick Start
 
 ```bash
-cd artemis
+cd services/artemis
 pip install -r requirements.txt
 ARTEMIS_AUTH_URL=http://localhost:8090 \
 ANTHROPIC_API_KEY=<your-key> \

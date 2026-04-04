@@ -1,7 +1,7 @@
 # Meal Planner — Module Specification
 
 > **Scope:** This document covers the `services/meal-planner` FastAPI backend.
-> For the Flutter frontend, see `modules/planners/meal-planner/`.
+> For the Flutter frontend, see `meal-planner/` at the monorepo root.
 > For the platform-wide integration contract, see `rummel-tech/resources/ARTEMIS_MODULE_CONTRACT.md`.
 
 ---

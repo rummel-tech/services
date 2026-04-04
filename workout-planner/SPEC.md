@@ -1,8 +1,8 @@
 # Workout Planner — Module Specification
 
 > **Scope:** This document covers the `services/workout-planner` FastAPI backend.
-> For the Flutter frontend, see `modules/planners/workout-planner/`.
-> For the platform-wide integration contract, see `rummel-tech/resources/ARTEMIS_MODULE_CONTRACT.md`.
+> For the Flutter frontend, see `workout-planner/` at the monorepo root.
+> For the platform-wide integration contract, see `resources/ARTEMIS_MODULE_CONTRACT.md`.
 
 ---
 
@@ -234,7 +234,7 @@ uvicorn main:app --reload --port 8000
 
 The Flutter frontend has a `dev.sh` helper:
 ```bash
-cd modules/planners/workout-planner
+cd workout-planner
 ./dev.sh status      # check services
 ./dev.sh hot-reload  # apply changes
 ./dev.sh logs        # tail output

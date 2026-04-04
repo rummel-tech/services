@@ -1,7 +1,7 @@
 # Home Manager — Module Specification
 
 > **Scope:** This document covers the `services/home-manager` FastAPI backend.
-> For the Flutter frontend, see `modules/asset-managers/home-manager/`.
+> For the Flutter frontend, see `home-manager/` at the monorepo root.
 > For the platform-wide integration contract, see `rummel-tech/resources/ARTEMIS_MODULE_CONTRACT.md`.
 
 ---

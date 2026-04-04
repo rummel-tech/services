@@ -1,7 +1,7 @@
 # Vehicle Manager — Module Specification
 
 > **Scope:** This document covers the `services/vehicle-manager` FastAPI backend.
-> For the Flutter frontend, see `modules/asset-managers/vehicle-manager/`.
+> For the Flutter frontend, see `vehicle-manager/` at the monorepo root.
 > For the platform-wide integration contract, see `rummel-tech/resources/ARTEMIS_MODULE_CONTRACT.md`.
 
 ---
