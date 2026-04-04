@@ -10,7 +10,7 @@ services:
       POSTGRES_MULTIPLE_DATABASES: auth_db,workout_planner_db,meal_planner_db,home_manager_db,vehicle_manager_db,work_planner_db,education_planner_db,content_planner_db
     volumes:
       - db_data:/var/lib/postgresql/data
-      - ../init-multiple-dbs.sh:/docker-entrypoint-initdb.d/init-multiple-dbs.sh:ro
+      - ../init-multiple-dbs.sh:/docker-entrypoint-initdb.d/init-multiple-dbs.sh:ro,z
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -46,14 +46,14 @@ services:
       PUBLIC_KEY_PATH: /app/keys/public.pem
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     volumes:
-      - ../auth/keys:/app/keys:ro
+      - ../auth/keys:/app/keys:ro,z
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8090/health || exit 1"]
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8090/health\")' || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -71,13 +71,14 @@ services:
       DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-changeme}@db:5432/workout_planner_db
       ARTEMIS_AUTH_URL: http://auth:8090
       ENVIRONMENT: production
+      DISABLE_AUTH: "false"
     depends_on:
       db:
         condition: service_healthy
       auth:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8000/health\")' || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -95,13 +96,14 @@ services:
       DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-changeme}@db:5432/meal_planner_db
       ARTEMIS_AUTH_URL: http://auth:8090
       ENVIRONMENT: production
+      DISABLE_AUTH: "false"
     depends_on:
       db:
         condition: service_healthy
       auth:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8010/health || exit 1"]
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8010/health\")' || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -119,13 +121,14 @@ services:
       DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-changeme}@db:5432/home_manager_db
       ARTEMIS_AUTH_URL: http://auth:8090
       ENVIRONMENT: production
+      DISABLE_AUTH: "false"
     depends_on:
       db:
         condition: service_healthy
       auth:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8020/health || exit 1"]
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8020/health\")' || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -143,13 +146,14 @@ services:
       DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-changeme}@db:5432/vehicle_manager_db
       ARTEMIS_AUTH_URL: http://auth:8090
       ENVIRONMENT: production
+      DISABLE_AUTH: "false"
     depends_on:
       db:
         condition: service_healthy
       auth:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8030/health || exit 1"]
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8030/health\")' || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -167,13 +171,15 @@ services:
       DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-changeme}@db:5432/work_planner_db
       ARTEMIS_AUTH_URL: http://auth:8090
       ENVIRONMENT: production
+      DISABLE_AUTH: "false"
+      JWT_SECRET: ${JWT_SECRET:-local-dev-secret-do-not-use-in-production-32c}
     depends_on:
       db:
         condition: service_healthy
       auth:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8040/health || exit 1"]
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8040/health\")' || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -191,13 +197,14 @@ services:
       DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-changeme}@db:5432/education_planner_db
       ARTEMIS_AUTH_URL: http://auth:8090
       ENVIRONMENT: production
+      DISABLE_AUTH: "false"
     depends_on:
       db:
         condition: service_healthy
       auth:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8050/health || exit 1"]
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8050/health\")' || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -215,13 +222,15 @@ services:
       DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-changeme}@db:5432/content_planner_db
       ARTEMIS_AUTH_URL: http://auth:8090
       ENVIRONMENT: production
+      DISABLE_AUTH: "false"
+      JWT_SECRET: ${JWT_SECRET:-local-dev-secret-do-not-use-in-production-32c}
     depends_on:
       db:
         condition: service_healthy
       auth:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8060/health || exit 1"]
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8060/health\")' || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -264,7 +273,7 @@ services:
       content-planner:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8080/health\")' || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5

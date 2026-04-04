@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy service code
 COPY auth/ auth/
 
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app:/app/auth
 
 RUN useradd -u 1001 -m appuser && chown -R appuser /app
 USER appuser

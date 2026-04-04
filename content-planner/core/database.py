@@ -152,8 +152,8 @@ def _init_pg():
 
 
 async def init_pg_pool():
-    await init_connection_pool(DATABASE_URL)
+    init_connection_pool(DATABASE_URL)
 
 
 async def close_pg_pool():
-    await close_connection_pool()
+    close_connection_pool()

@@ -31,8 +31,8 @@ services:
       CONTENT_PLANNER_URL: ${STAGING_CONTENT_PLANNER_URL}
     volumes:
       # Mount source for live reload during development
-      - ./artemis:/app/artemis:ro
-      - ./common:/app/common:ro
+      - ./artemis:/app/artemis:ro,z
+      - ./common:/app/common:ro,z
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
       interval: 15s
