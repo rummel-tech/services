@@ -1,0 +1,31 @@
+# Isolated dev mode — no postgres, no redis, no auth service.
+# Uses SQLite. Auth is disabled. Useful for containerized smoke testing.
+#
+# For active development with hot-reload, run natively instead:
+#   cd services/
+#   python -m venv work-planner/.venv
+#   source work-planner/.venv/bin/activate
+#   pip install -r common/requirements.txt -r work-planner/requirements.txt
+#   cp work-planner/.env.example work-planner/.env   # already set up for SQLite/dev
+#   cd work-planner && uvicorn main:app --reload --port 8040
+#
+# API docs: http://localhost:8040/docs
+#
+# Run from the services/ root:
+#   docker compose -f work-planner/docker-compose.dev.yml up
+
+services:
+  work-planner:
+    build:
+      context: ..
+      dockerfile: work-planner/Dockerfile
+    ports:
+      - "8040:8040"
+    environment:
+      DATABASE_URL: sqlite:////tmp/work_dev.db
+      ENVIRONMENT: development
+      DISABLE_AUTH: "true"
+      LOG_LEVEL: debug
+      DEBUG: "true"
+      REDIS_ENABLED: "false"
+      CORS_ORIGINS: '["http://localhost:3000","http://localhost:8080","http://localhost:8081"]'

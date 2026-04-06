@@ -1,4 +1,8 @@
-# Run from the services/ root: docker compose -f work-planner/docker-compose.yml up
+# Full-stack local dev with PostgreSQL + Redis + Auth.
+# Run from the services/ root:
+#   docker compose -f work-planner/docker-compose.yml up
+#
+# For lightweight isolated dev (SQLite, no auth), use docker-compose.dev.yml instead.
 
 services:
   db:
@@ -10,7 +14,7 @@ services:
       POSTGRES_MULTIPLE_DATABASES: auth_db,work_planner_db
     volumes:
       - db_data:/var/lib/postgresql/data
-      - ../init-multiple-dbs.sh:/docker-entrypoint-initdb.d/init-multiple-dbs.sh:ro
+      - ../init-multiple-dbs.sh:/docker-entrypoint-initdb.d/init-multiple-dbs.sh:ro,z
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -46,14 +50,14 @@ services:
       PUBLIC_KEY_PATH: /app/keys/public.pem
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     volumes:
-      - ../auth/keys:/app/keys:ro
+      - ../auth/keys:/app/keys:ro,z
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8090/health || exit 1"]
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8090/health\")' || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -71,13 +75,16 @@ services:
       DATABASE_URL: postgresql://postgres:${DB_PASSWORD:-changeme}@db:5432/work_planner_db
       ARTEMIS_AUTH_URL: http://auth:8090
       ENVIRONMENT: production
+      DISABLE_AUTH: "false"
+      JWT_SECRET: ${JWT_SECRET:-local-dev-secret-do-not-use-in-production-32c}
+      LOG_LEVEL: debug
     depends_on:
       db:
         condition: service_healthy
       auth:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8040/health || exit 1"]
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8040/health\")' || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5
