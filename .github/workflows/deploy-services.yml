@@ -192,8 +192,11 @@ jobs:
 
       - name: Ensure ECR repository exists
         run: |
-          aws ecr describe-repositories --repository-names ${{ matrix.service }} --region $AWS_REGION >/dev/null 2>&1 || \
-          aws ecr create-repository --repository-name ${{ matrix.service }} --image-scanning-configuration scanOnPush=true --region $AWS_REGION
+          # Use environment-scoped repo name: {environment}-{service}
+          ECR_REPO="${{ env.ENVIRONMENT }}-${{ matrix.service }}"
+          aws ecr describe-repositories --repository-names "$ECR_REPO" --region $AWS_REGION >/dev/null 2>&1 || \
+          aws ecr create-repository --repository-name "$ECR_REPO" --image-scanning-configuration scanOnPush=true --region $AWS_REGION
+          echo "ECR_REPO=$ECR_REPO" >> $GITHUB_ENV
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -206,16 +209,21 @@ jobs:
         run: |
           docker build \
             -f ${{ matrix.service }}/Dockerfile \
-            -t $ECR_REGISTRY/${{ matrix.service }}:$IMAGE_TAG \
+            --build-arg ENVIRONMENT=${{ env.ENVIRONMENT }} \
+            --build-arg PORT=${{ matrix.port }} \
+            -t $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG \
             .
-          docker tag $ECR_REGISTRY/${{ matrix.service }}:$IMAGE_TAG $ECR_REGISTRY/${{ matrix.service }}:latest
-          docker push $ECR_REGISTRY/${{ matrix.service }}:$IMAGE_TAG
-          docker push $ECR_REGISTRY/${{ matrix.service }}:latest
+          docker tag $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPO:latest
+          docker tag $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPO:${{ env.ENVIRONMENT }}
+          docker push $ECR_REGISTRY/$ECR_REPO:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPO:latest
+          docker push $ECR_REGISTRY/$ECR_REPO:${{ env.ENVIRONMENT }}
 
       - name: Update ECS service
         run: |
           CLUSTER="${{ env.ENVIRONMENT }}-cluster"
-          SVC="${{ matrix.service }}-service"
+          # Use environment-scoped service name: {environment}-{service}-service
+          SVC="${{ env.ENVIRONMENT }}-${{ matrix.service }}-service"
           SERVICE_EXISTS=$(aws ecs describe-services \
             --cluster $CLUSTER \
             --services $SVC \
@@ -234,4 +242,5 @@ jobs:
       - name: Deployment summary
         run: |
           echo "Deployed ${{ matrix.service }} (port ${{ matrix.port }}) to ${{ env.ENVIRONMENT }}"
-          echo "Image: ${{ steps.login-ecr.outputs.registry }}/${{ matrix.service }}:${{ github.sha }}"
+          echo "ECR repo: $ECR_REPO"
+          echo "Image: ${{ steps.login-ecr.outputs.registry }}/$ECR_REPO:${{ github.sha }}"

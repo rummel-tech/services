@@ -8,7 +8,7 @@ from pydantic import BaseModel
 class GoalCreate(BaseModel):
     title: str
     description: Optional[str] = None
-    goal_type: str = 'corporate'   # corporate | entrepreneurial
+    goal_type: str = 'corporate'   # corporate | farm | appDevelopment | homeAuto
     status: str = 'notStarted'     # notStarted | inProgress | completed | abandoned
     target_date: Optional[str] = None
 

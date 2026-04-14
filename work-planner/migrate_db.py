@@ -108,6 +108,8 @@ def create_tables():
         duration_minutes INTEGER,
         completed BOOLEAN DEFAULT FALSE,
         plan_id TEXT,
+        pomodoro_block INTEGER,
+        task_category TEXT,
         created_at TIMESTAMP DEFAULT NOW(),
         updated_at TIMESTAMP DEFAULT NOW(),
         FOREIGN KEY (day_planner_id) REFERENCES day_planners(id) ON DELETE CASCADE

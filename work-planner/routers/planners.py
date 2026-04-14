@@ -130,7 +130,7 @@ async def update_day_planner(
         if not row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Day planner not found')
         dp_id = row['id']
-        raw = updates.model_dump(exclude_none=True)
+        raw = updates.model_dump(exclude_unset=True)
         if raw:
             raw['updated_at'] = datetime.now(timezone.utc).isoformat()
             set_clause = ', '.join(f'{k} = ?' for k in raw)
@@ -192,7 +192,7 @@ async def update_task(
         if not cur.fetchone():
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Task not found')
 
-        raw = updates.model_dump(exclude_none=True)
+        raw = updates.model_dump(exclude_unset=True)
         if raw:
             raw['updated_at'] = datetime.now(timezone.utc).isoformat()
             set_clause = ', '.join(f'{k} = ?' for k in raw)
@@ -351,7 +351,7 @@ async def update_week_planner(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Week planner not found')
         wp_id = row['id']
 
-        raw = updates.model_dump(exclude_none=True)
+        raw = updates.model_dump(exclude_unset=True)
         if 'weekly_goals' in raw:
             raw['weekly_goals'] = json.dumps(raw['weekly_goals'])
         if raw:

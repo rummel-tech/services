@@ -115,7 +115,7 @@ async def update_plan(
         if not cur.fetchone():
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Plan not found')
 
-        raw = updates.model_dump(exclude_none=True)
+        raw = updates.model_dump(exclude_unset=True)
         if 'steps' in raw:
             raw['steps'] = json.dumps(raw['steps'])
         if raw:

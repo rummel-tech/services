@@ -14,6 +14,8 @@ class TaskCreate(BaseModel):
     scheduled_time: Optional[str] = None
     duration_minutes: Optional[int] = None
     plan_id: Optional[str] = None
+    pomodoro_block: Optional[int] = None
+    task_category: Optional[str] = None  # corporate | farm | appDevelopment (null == corporate)
 
 
 class TaskUpdate(BaseModel):
@@ -24,6 +26,8 @@ class TaskUpdate(BaseModel):
     duration_minutes: Optional[int] = None
     completed: Optional[bool] = None
     plan_id: Optional[str] = None
+    pomodoro_block: Optional[int] = None
+    task_category: Optional[str] = None
 
 
 class Task(BaseModel):
@@ -37,6 +41,8 @@ class Task(BaseModel):
     duration_minutes: Optional[int] = None
     completed: bool = False
     plan_id: Optional[str] = None
+    pomodoro_block: Optional[int] = None
+    task_category: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

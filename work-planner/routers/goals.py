@@ -106,7 +106,7 @@ async def update_goal(
         if not row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Goal not found')
 
-        fields = {k: v for k, v in updates.model_dump().items() if v is not None}
+        fields = updates.model_dump(exclude_unset=True)
         if fields:
             fields['updated_at'] = datetime.now(timezone.utc).isoformat()
             set_clause = ', '.join(f'{k} = ?' for k in fields)
