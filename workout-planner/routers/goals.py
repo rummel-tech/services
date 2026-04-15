@@ -134,7 +134,7 @@ def get_goal(goal_id: int):
 
 @router.put("/{goal_id}")
 def update_goal(goal_id: int, goal: GoalUpdate):
-    updates = {k: v for k, v in goal.dict().items() if v is not None}
+    updates = goal.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
     invalid_cols = set(updates) - _GOAL_UPDATABLE_COLS
@@ -193,6 +193,19 @@ def get_goal_plans(goal_id: int, user_id: Optional[str] = None):
         metrics.record_domain_event("goal_plans_list")
         return rows
 
+@router.post("/{goal_id}/plans")
+def create_goal_plan_for_goal(goal_id: int, plan: PlanCreate):
+    """Create a plan for a goal — goal_id taken from URL path."""
+    # Override whatever goal_id the body may carry with the authoritative path param.
+    plan = PlanCreate(
+        goal_id=goal_id,
+        user_id=plan.user_id,
+        name=plan.name,
+        description=plan.description,
+        status=plan.status,
+    )
+    return create_goal_plan(plan)
+
 @router.post("/plans")
 def create_goal_plan(plan: PlanCreate):
     with get_db() as conn:
@@ -216,7 +229,7 @@ def create_goal_plan(plan: PlanCreate):
 
 @router.put("/plans/{plan_id}")
 def update_plan(plan_id: int, plan: PlanUpdate):
-    updates = {k: v for k, v in plan.dict().items() if v is not None}
+    updates = plan.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
 
