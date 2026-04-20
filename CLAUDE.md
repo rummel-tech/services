@@ -105,5 +105,6 @@ compat but should not be used in new code.
 | work-planner | 8040 |
 | education-planner | 8050 |
 | content-planner | 8060 |
+| trip-planner | 8070 |
 | artemis (platform) | 8080 |
 | auth | 8090 |
