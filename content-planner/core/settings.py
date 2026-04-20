@@ -29,6 +29,7 @@ class ContentPlannerSettings(BaseServiceSettings):
     ]
 
     artemis_auth_url: str = "http://localhost:8090"
+    youtube_api_key: str = ""  # YouTube Data API v3 key — set via YOUTUBE_API_KEY env var
 
 
 @lru_cache()

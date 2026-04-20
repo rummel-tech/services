@@ -229,3 +229,91 @@ class UserSettingsResponse(BaseModel):
     notifications: NotificationSettingsUpdate
     quarterly_focus_pillar_id: Optional[str]
     updated_at: str
+
+
+# ── Playlist ──────────────────────────────────────────────────────────────────
+
+class PlaylistCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    # context presets: commute | quick_trip | workout | evening | custom
+    context: str = "custom"
+    # target duration in milliseconds (e.g. 2700000 = 45 min)
+    target_duration_ms: int = 0
+    # provider: youtube | podcast | mixed
+    provider: str = "mixed"
+
+
+class PlaylistUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    context: Optional[str] = None
+    target_duration_ms: Optional[int] = None
+    provider: Optional[str] = None
+    youtube_playlist_id: Optional[str] = None
+
+
+class PlaylistItemAdd(BaseModel):
+    # Supply either a content_item_id (already in the library) or raw YouTube fields
+    content_item_id: Optional[str] = None
+    youtube_video_id: Optional[str] = None
+    title: str
+    url: Optional[str] = None
+    duration_ms: int = 0
+    thumbnail_url: Optional[str] = None
+    channel_name: Optional[str] = None
+
+
+class PlaylistItemReorder(BaseModel):
+    item_ids: List[str]  # playlist_items.id in desired order
+
+
+class PlaylistItemResponse(BaseModel):
+    id: str
+    playlist_id: str
+    content_item_id: Optional[str]
+    youtube_video_id: Optional[str]
+    title: str
+    url: Optional[str]
+    duration_ms: int
+    thumbnail_url: Optional[str]
+    channel_name: Optional[str]
+    position: int
+    added_at: str
+
+
+class PlaylistResponse(BaseModel):
+    id: str
+    user_id: str
+    name: str
+    description: Optional[str]
+    context: str
+    target_duration_ms: int
+    provider: str
+    youtube_playlist_id: Optional[str]
+    total_duration_ms: int
+    item_count: int
+    items: List[PlaylistItemResponse]
+    created_at: str
+    updated_at: str
+
+
+# ── YouTube suggestion returned by the suggestions endpoint ───────────────────
+
+class YouTubeSuggestion(BaseModel):
+    youtube_video_id: str
+    title: str
+    channel_name: str
+    duration_ms: int
+    thumbnail_url: str
+    url: str
+    fits_remaining_ms: bool  # True if adding this fills ≤ remaining time
+
+
+# ── YouTube export result ─────────────────────────────────────────────────────
+
+class YouTubeExportResult(BaseModel):
+    youtube_playlist_id: str
+    youtube_playlist_url: str
+    videos_added: int
+    skipped: int  # items without youtube_video_id

@@ -113,6 +113,35 @@ CREATE TABLE IF NOT EXISTS user_settings (
     quarterly_focus_pillar_id TEXT,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS playlists (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    context TEXT NOT NULL DEFAULT 'custom',
+    target_duration_ms INTEGER NOT NULL DEFAULT 0,
+    provider TEXT NOT NULL DEFAULT 'mixed',
+    youtube_playlist_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS playlist_items (
+    id TEXT PRIMARY KEY,
+    playlist_id TEXT NOT NULL,
+    content_item_id TEXT,
+    youtube_video_id TEXT,
+    title TEXT NOT NULL,
+    url TEXT,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    thumbnail_url TEXT,
+    channel_name TEXT,
+    position INTEGER NOT NULL DEFAULT 0,
+    added_at TEXT NOT NULL,
+    FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
+    FOREIGN KEY (content_item_id) REFERENCES content_items(id)
+);
 """
 
 

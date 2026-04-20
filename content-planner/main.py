@@ -31,7 +31,7 @@ config = ServiceConfig(
 
 app = create_app(config)
 
-from routers import healthcheck, pillars, sources, content_items, queue, sessions, summaries, user_settings, artemis
+from routers import healthcheck, pillars, sources, content_items, queue, sessions, summaries, user_settings, artemis, playlists
 
 app.include_router(healthcheck.router, prefix=config.api_prefix)
 app.include_router(pillars.router, prefix=config.api_prefix)
@@ -42,3 +42,4 @@ app.include_router(sessions.router, prefix=config.api_prefix)
 app.include_router(summaries.router, prefix=config.api_prefix)
 app.include_router(user_settings.router, prefix=config.api_prefix)
 app.include_router(artemis.router, prefix=config.api_prefix)
+app.include_router(playlists.router, prefix=config.api_prefix)
