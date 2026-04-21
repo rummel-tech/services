@@ -1,0 +1,59 @@
+{
+  "test_goal_1": {
+    "id": "test_goal_1",
+    "title": "Test goal for retirement",
+    "domain": "work",
+    "status": "retired",
+    "created_at": "2026-04-21",
+    "last_mentioned": "2026-04-21",
+    "last_progress": "2026-04-21",
+    "mention_count": 2,
+    "progress_events": 0,
+    "retired_at": "2026-04-21",
+    "retirement_reason": "Test complete"
+  },
+  "project__artemis-platform": {
+    "id": "project__artemis-platform",
+    "title": "artemis-platform",
+    "domain": "work",
+    "status": "active",
+    "created_at": "2026-04-21",
+    "last_mentioned": "2026-04-21",
+    "last_progress": "2026-04-21",
+    "mention_count": 1,
+    "progress_events": 0
+  },
+  "project__workout-planner-commercial": {
+    "id": "project__workout-planner-commercial",
+    "title": "workout-planner-commercial",
+    "domain": "work",
+    "status": "active",
+    "created_at": "2026-04-21",
+    "last_mentioned": "2026-04-21",
+    "last_progress": "2026-04-21",
+    "mention_count": 1,
+    "progress_events": 0
+  },
+  "priority__artemis_intake_+_workout_planner_launch": {
+    "id": "priority__artemis_intake_+_workout_planner_launch",
+    "title": "Artemis intake + Workout Planner launch",
+    "domain": "work",
+    "status": "active",
+    "created_at": "2026-04-21",
+    "last_mentioned": "2026-04-21",
+    "last_progress": "2026-04-21",
+    "mention_count": 1,
+    "progress_events": 0
+  },
+  "priority__ship_phase_1": {
+    "id": "priority__ship_phase_1",
+    "title": "Ship Phase 1",
+    "domain": "work",
+    "status": "active",
+    "created_at": "2026-04-21",
+    "last_mentioned": "2026-04-21",
+    "last_progress": "2026-04-21",
+    "mention_count": 1,
+    "progress_events": 0
+  }
+}

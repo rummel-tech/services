@@ -1,0 +1,22 @@
+[
+  {
+    "id": "prop_1776768460",
+    "type": "deep_work_block",
+    "title": "Protect tomorrow morning for deep work",
+    "description": "Deep work is at 0/20 hours this week (0% of target). Blocking 9am–12pm tomorrow for uninterrupted focus.",
+    "domain": "work",
+    "action": {
+      "type": "create_task",
+      "module": "work-planner",
+      "data": {
+        "title": "🔒 Deep Work Block — Protected",
+        "priority": "urgent",
+        "category": "deep_work",
+        "scheduled_time": "09:00",
+        "duration_minutes": 180
+      }
+    },
+    "status": "pending",
+    "created_at": "2026-04-21T10:47:40.125593+00:00"
+  }
+]

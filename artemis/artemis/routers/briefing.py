@@ -19,6 +19,8 @@ from artemis.core.memory import (
     save_session,
     update_running_context,
 )
+from artemis.core.patterns import detect_patterns, format_patterns_for_briefing
+from artemis.core.signals import get_active_signals, publish
 from artemis.core.registry import registry
 
 log = logging.getLogger("artemis.briefing")
@@ -125,15 +127,39 @@ async def morning_briefing(
         loops_str = "\n".join(f"  • {l}" for l in open_loops[:5])
         sections.append(f"**OPEN LOOPS**\n{loops_str}")
 
+    # Pattern detection — the cross-module intelligence layer
+    signals = get_active_signals()
+    # Merge live summaries into context for richer pattern detection
+    enriched_ctx = dict(ctx)
+    for domain, summary in module_summaries.items():
+        enriched_ctx.setdefault(domain, {})["live_summary"] = summary
+    patterns = detect_patterns(context=enriched_ctx, signals=signals)
+
+    if patterns:
+        # Auto-publish critical patterns as signals for workers to act on
+        for p in patterns:
+            if p.signal_to_publish and p.severity == "critical":
+                source, sig_type, sig_data = p.signal_to_publish
+                publish(source, sig_type, sig_data, ttl_hours=48)
+
+        sections.append(format_patterns_for_briefing(patterns))
+
     # Stoic and reflection
     sections.append(
         f"**STOIC**\n\"{quote['text']}\"\n— {quote['author']}"
     )
 
-    sections.append(
-        "**QUESTION FOR TODAY**\n"
-        "What is the one thing, if done today, that would make everything else easier or unnecessary?"
-    )
+    # Dynamic question — escalate if there's a critical pattern
+    critical = next((p for p in patterns if p.severity == "critical"), None)
+    if critical:
+        sections.append(
+            f"**ARTEMIS ASKS**\n{critical.message}"
+        )
+    else:
+        sections.append(
+            "**QUESTION FOR TODAY**\n"
+            "What is the one thing, if done today, that would make everything else easier or unnecessary?"
+        )
 
     briefing_text = "\n\n".join(sections)
     greeting = f"Good morning, {user_name}. {day_name}, {today}.\n\n{briefing_text}"
@@ -150,6 +176,11 @@ async def morning_briefing(
         },
         "stoic_quote": quote,
         "open_loops": open_loops,
+        "patterns": [
+            {"name": p.name, "severity": p.severity, "headline": p.headline}
+            for p in patterns
+        ],
+        "has_critical": any(p.severity == "critical" for p in patterns),
     }
 
 

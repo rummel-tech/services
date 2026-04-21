@@ -21,6 +21,7 @@ from artemis.core.memory import (
     vision_needs_intake,
 )
 from artemis.core.persona import build_system_prompt
+from artemis.core.signals import format_signals_for_prompt, get_active_signals, publish
 from artemis.core.registry import ModuleRegistry, registry
 from artemis.core.settings import get_settings
 
@@ -106,6 +107,38 @@ MEMORY_TOOLS = [
             },
             "required": ["item"]
         }
+    },
+    {
+        "name": "publish_signal",
+        "description": (
+            "Publish a cross-domain signal to alert other worker agents. "
+            "Use this when you detect a pattern that another domain should know about. "
+            "Examples: low_readiness (Body→Work), deadline_approaching (Work→Body/Mind), "
+            "trip_upcoming (Travel→all), environment_friction (Home→all)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "signal_type": {
+                    "type": "string",
+                    "description": "The signal type (e.g. low_readiness, deadline_approaching, trip_upcoming)"
+                },
+                "source": {
+                    "type": "string",
+                    "description": "Which agent is publishing (e.g. body, work, travel, home, mind, orchestrator)"
+                },
+                "data": {
+                    "type": "object",
+                    "description": "Optional structured data (e.g. {score: 58, days: 3})"
+                },
+                "ttl_hours": {
+                    "type": "number",
+                    "description": "Hours until signal expires. Default 24.",
+                    "default": 24
+                }
+            },
+            "required": ["signal_type", "source"]
+        }
     }
 ]
 
@@ -135,6 +168,15 @@ def _handle_memory_tool(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str,
         if tool_name == "close_open_loop":
             close_open_loop(tool_input["item"])
             return {"closed": True}
+
+        if tool_name == "publish_signal":
+            publish(
+                source=tool_input["source"],
+                signal_type=tool_input["signal_type"],
+                data=tool_input.get("data"),
+                ttl_hours=int(tool_input.get("ttl_hours", 24)),
+            )
+            return {"published": True}
 
         return {"error": f"Unknown memory tool: {tool_name}"}
     except Exception as e:
@@ -248,14 +290,21 @@ async def run_agent(
 
     all_tools = module_tools + platform_tools + MEMORY_TOOLS
 
-    # Build persona system prompt with injected memory
+    # Build persona system prompt with injected memory + active signals
     memory_context = get_context_for_prompt()
     stoic_quote = get_todays_stoic_quote()
     needs_intake = vision_needs_intake()
+    active_signals = get_active_signals()
+    signal_block = format_signals_for_prompt(active_signals)
+
+    # Append signal context to memory block so Artemis sees cross-domain state
+    full_memory = memory_context
+    if signal_block:
+        full_memory = memory_context + f"\n\n{signal_block}"
 
     system = build_system_prompt(
         token_payload=token_payload,
-        memory_context=memory_context,
+        memory_context=full_memory,
         stoic_quote=stoic_quote,
         needs_intake=needs_intake,
     )

@@ -1,0 +1,132 @@
+[
+  {
+    "id": "notif_1776744081",
+    "title": "Practice Streak Broken",
+    "body": "Both morning Stoic practice and evening review streaks are at zero. One session resets the momentum — start tomorrow morning with 5 minutes.",
+    "severity": "warning",
+    "domain": "spirit",
+    "action": "start_morning_practice",
+    "created_at": "2026-04-21T04:01:21.203987+00:00",
+    "read": false
+  },
+  {
+    "id": "notif_1776744081",
+    "title": "Practice Streak Broken",
+    "body": "Both morning Stoic practice and evening review streaks are at zero. One session resets the momentum — start tomorrow morning with 5 minutes.",
+    "severity": "warning",
+    "domain": "spirit",
+    "action": "start_morning_practice",
+    "created_at": "2026-04-21T04:01:21.342775+00:00",
+    "read": false
+  },
+  {
+    "id": "notif_1776744081",
+    "title": "Practice Streak Broken",
+    "body": "Both morning Stoic practice and evening review streaks are at zero. One session resets the momentum — start tomorrow morning with 5 minutes.",
+    "severity": "warning",
+    "domain": "spirit",
+    "action": "start_morning_practice",
+    "created_at": "2026-04-21T04:01:21.465827+00:00",
+    "read": false
+  },
+  {
+    "id": "notif_1776744165",
+    "title": "Practice Streak Broken",
+    "body": "Both morning Stoic practice and evening review streaks are at zero. One session resets the momentum — start tomorrow morning with 5 minutes.",
+    "severity": "warning",
+    "domain": "spirit",
+    "action": "start_morning_practice",
+    "created_at": "2026-04-21T04:02:45.484227+00:00",
+    "read": false
+  },
+  {
+    "id": "notif_1776744166",
+    "title": "Practice Streak Broken",
+    "body": "Both morning Stoic practice and evening review streaks are at zero. One session resets the momentum — start tomorrow morning with 5 minutes.",
+    "severity": "warning",
+    "domain": "spirit",
+    "action": "start_morning_practice",
+    "created_at": "2026-04-21T04:02:45.621432+00:00",
+    "read": false
+  },
+  {
+    "id": "notif_1776744166",
+    "title": "Practice Streak Broken",
+    "body": "Both morning Stoic practice and evening review streaks are at zero. One session resets the momentum — start tomorrow morning with 5 minutes.",
+    "severity": "warning",
+    "domain": "spirit",
+    "action": "start_morning_practice",
+    "created_at": "2026-04-21T04:02:45.742217+00:00",
+    "read": false
+  },
+  {
+    "id": "notif_1776768078",
+    "title": "Practice Streak Broken",
+    "body": "Both morning Stoic practice and evening review streaks are at zero. One session resets the momentum — start tomorrow morning with 5 minutes.",
+    "severity": "warning",
+    "domain": "spirit",
+    "action": "start_morning_practice",
+    "created_at": "2026-04-21T10:41:17.649060+00:00",
+    "read": false
+  },
+  {
+    "id": "notif_1776768078",
+    "title": "Practice Streak Broken",
+    "body": "Both morning Stoic practice and evening review streaks are at zero. One session resets the momentum — start tomorrow morning with 5 minutes.",
+    "severity": "warning",
+    "domain": "spirit",
+    "action": "start_morning_practice",
+    "created_at": "2026-04-21T10:41:17.734717+00:00",
+    "read": false
+  },
+  {
+    "id": "notif_1776768078",
+    "title": "Practice Streak Broken",
+    "body": "Both morning Stoic practice and evening review streaks are at zero. One session resets the momentum — start tomorrow morning with 5 minutes.",
+    "severity": "warning",
+    "domain": "spirit",
+    "action": "start_morning_practice",
+    "created_at": "2026-04-21T10:41:17.811270+00:00",
+    "read": false
+  },
+  {
+    "id": "notif_1776768451",
+    "title": "Practice Streak Broken",
+    "body": "Both morning Stoic practice and evening review streaks are at zero. One session resets the momentum — start tomorrow morning with 5 minutes.",
+    "severity": "warning",
+    "domain": "spirit",
+    "action": "start_morning_practice",
+    "created_at": "2026-04-21T10:47:31.186115+00:00",
+    "read": false
+  },
+  {
+    "id": "notif_1776768460",
+    "title": "Practice Streak Broken",
+    "body": "Both morning Stoic practice and evening review streaks are at zero. One session resets the momentum — start tomorrow morning with 5 minutes.",
+    "severity": "warning",
+    "domain": "spirit",
+    "action": "start_morning_practice",
+    "created_at": "2026-04-21T10:47:39.853255+00:00",
+    "read": false
+  },
+  {
+    "id": "notif_1776768460",
+    "title": "Practice Streak Broken",
+    "body": "Both morning Stoic practice and evening review streaks are at zero. One session resets the momentum — start tomorrow morning with 5 minutes.",
+    "severity": "warning",
+    "domain": "spirit",
+    "action": "start_morning_practice",
+    "created_at": "2026-04-21T10:47:39.989456+00:00",
+    "read": false
+  },
+  {
+    "id": "notif_1776768460",
+    "title": "Practice Streak Broken",
+    "body": "Both morning Stoic practice and evening review streaks are at zero. One session resets the momentum — start tomorrow morning with 5 minutes.",
+    "severity": "warning",
+    "domain": "spirit",
+    "action": "start_morning_practice",
+    "created_at": "2026-04-21T10:47:40.127337+00:00",
+    "read": false
+  }
+]

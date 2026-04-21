@@ -1,0 +1,204 @@
+[
+  {
+    "date": "2026-04-20",
+    "patterns_detected": 2,
+    "critical_patterns": 0,
+    "warning_patterns": 2,
+    "signals_published": 1,
+    "notifications_pushed": 1,
+    "proposals_added": 1,
+    "actions": [
+      "published signal low_readiness",
+      "proposal: deep work block",
+      "notification: practice streak broken"
+    ],
+    "timestamp": "2026-04-21T04:01:21.204958+00:00"
+  },
+  {
+    "date": "2026-04-20",
+    "patterns_detected": 2,
+    "critical_patterns": 0,
+    "warning_patterns": 2,
+    "signals_published": 1,
+    "notifications_pushed": 1,
+    "proposals_added": 1,
+    "actions": [
+      "published signal low_readiness",
+      "proposal: deep work block",
+      "notification: practice streak broken"
+    ],
+    "timestamp": "2026-04-21T04:01:21.348567+00:00"
+  },
+  {
+    "date": "2026-04-20",
+    "patterns_detected": 2,
+    "critical_patterns": 0,
+    "warning_patterns": 2,
+    "signals_published": 1,
+    "notifications_pushed": 1,
+    "proposals_added": 1,
+    "actions": [
+      "published signal low_readiness",
+      "proposal: deep work block",
+      "notification: practice streak broken"
+    ],
+    "timestamp": "2026-04-21T04:01:21.468666+00:00"
+  },
+  {
+    "date": "2026-04-20",
+    "patterns_detected": 2,
+    "critical_patterns": 0,
+    "warning_patterns": 2,
+    "signals_published": 1,
+    "notifications_pushed": 1,
+    "proposals_added": 1,
+    "actions": [
+      "published signal low_readiness",
+      "proposal: deep work block",
+      "notification: practice streak broken"
+    ],
+    "timestamp": "2026-04-21T04:02:45.485183+00:00"
+  },
+  {
+    "date": "2026-04-20",
+    "patterns_detected": 2,
+    "critical_patterns": 0,
+    "warning_patterns": 2,
+    "signals_published": 1,
+    "notifications_pushed": 1,
+    "proposals_added": 1,
+    "actions": [
+      "published signal low_readiness",
+      "proposal: deep work block",
+      "notification: practice streak broken"
+    ],
+    "timestamp": "2026-04-21T04:02:45.625305+00:00"
+  },
+  {
+    "date": "2026-04-20",
+    "patterns_detected": 2,
+    "critical_patterns": 0,
+    "warning_patterns": 2,
+    "signals_published": 1,
+    "notifications_pushed": 1,
+    "proposals_added": 1,
+    "actions": [
+      "published signal low_readiness",
+      "proposal: deep work block",
+      "notification: practice streak broken"
+    ],
+    "timestamp": "2026-04-21T04:02:45.743838+00:00"
+  },
+  {
+    "date": "2026-04-21",
+    "patterns_detected": 2,
+    "critical_patterns": 0,
+    "warning_patterns": 2,
+    "signals_published": 1,
+    "notifications_pushed": 1,
+    "proposals_added": 1,
+    "actions": [
+      "published signal low_readiness",
+      "proposal: deep work block",
+      "notification: practice streak broken"
+    ],
+    "timestamp": "2026-04-21T10:41:17.650307+00:00"
+  },
+  {
+    "date": "2026-04-21",
+    "patterns_detected": 2,
+    "critical_patterns": 0,
+    "warning_patterns": 2,
+    "signals_published": 1,
+    "notifications_pushed": 1,
+    "proposals_added": 1,
+    "actions": [
+      "published signal low_readiness",
+      "proposal: deep work block",
+      "notification: practice streak broken"
+    ],
+    "timestamp": "2026-04-21T10:41:17.735516+00:00"
+  },
+  {
+    "date": "2026-04-21",
+    "patterns_detected": 2,
+    "critical_patterns": 0,
+    "warning_patterns": 2,
+    "signals_published": 1,
+    "notifications_pushed": 1,
+    "proposals_added": 1,
+    "actions": [
+      "published signal low_readiness",
+      "proposal: deep work block",
+      "notification: practice streak broken"
+    ],
+    "timestamp": "2026-04-21T10:41:17.812866+00:00"
+  },
+  {
+    "date": "2026-04-21",
+    "patterns_detected": 1,
+    "critical_patterns": 0,
+    "warning_patterns": 1,
+    "signals_published": 0,
+    "notifications_pushed": 1,
+    "proposals_added": 1,
+    "dormant_goals": 0,
+    "actions": [
+      "proposal: deep work block",
+      "notification: practice streak broken",
+      "outcome snapshot captured"
+    ],
+    "timestamp": "2026-04-21T10:47:31.189221+00:00"
+  },
+  {
+    "date": "2026-04-21",
+    "patterns_detected": 2,
+    "critical_patterns": 0,
+    "warning_patterns": 2,
+    "signals_published": 1,
+    "notifications_pushed": 1,
+    "proposals_added": 1,
+    "dormant_goals": 0,
+    "actions": [
+      "published signal low_readiness",
+      "proposal: deep work block",
+      "notification: practice streak broken",
+      "outcome snapshot captured"
+    ],
+    "timestamp": "2026-04-21T10:47:39.868774+00:00"
+  },
+  {
+    "date": "2026-04-21",
+    "patterns_detected": 2,
+    "critical_patterns": 0,
+    "warning_patterns": 2,
+    "signals_published": 1,
+    "notifications_pushed": 1,
+    "proposals_added": 1,
+    "dormant_goals": 0,
+    "actions": [
+      "published signal low_readiness",
+      "proposal: deep work block",
+      "notification: practice streak broken",
+      "outcome snapshot captured"
+    ],
+    "timestamp": "2026-04-21T10:47:40.003775+00:00"
+  },
+  {
+    "date": "2026-04-21",
+    "patterns_detected": 2,
+    "critical_patterns": 0,
+    "warning_patterns": 2,
+    "signals_published": 1,
+    "notifications_pushed": 1,
+    "proposals_added": 1,
+    "dormant_goals": 0,
+    "actions": [
+      "published signal low_readiness",
+      "proposal: deep work block",
+      "notification: practice streak broken",
+      "outcome snapshot captured"
+    ],
+    "timestamp": "2026-04-21T10:47:40.134617+00:00"
+  }
+]

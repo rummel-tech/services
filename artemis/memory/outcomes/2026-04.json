@@ -1,0 +1,20 @@
+[
+  {
+    "date": "2026-04-21",
+    "inputs": {
+      "workouts_this_week": null,
+      "deep_work_hours": 0,
+      "morning_practice_done": false,
+      "evening_review_done": false,
+      "sabbath_observed": false,
+      "deep_work_hit_target": false,
+      "protein_target_hit": null,
+      "training_done": true
+    },
+    "outcomes": {
+      "readiness": null,
+      "goals_completed_today": 0
+    },
+    "updated_at": "2026-04-21T10:47:40.538189+00:00"
+  }
+]
