@@ -128,5 +128,35 @@
     "action": "start_morning_practice",
     "created_at": "2026-04-21T10:47:40.127337+00:00",
     "read": false
+  },
+  {
+    "id": "notif_1776769072",
+    "title": "Practice Streak Broken",
+    "body": "Both morning Stoic practice and evening review streaks are at zero. One session resets the momentum — start tomorrow morning with 5 minutes.",
+    "severity": "warning",
+    "domain": "spirit",
+    "action": "start_morning_practice",
+    "created_at": "2026-04-21T10:57:51.972512+00:00",
+    "read": false
+  },
+  {
+    "id": "notif_1776769072",
+    "title": "Practice Streak Broken",
+    "body": "Both morning Stoic practice and evening review streaks are at zero. One session resets the momentum — start tomorrow morning with 5 minutes.",
+    "severity": "warning",
+    "domain": "spirit",
+    "action": "start_morning_practice",
+    "created_at": "2026-04-21T10:57:52.063702+00:00",
+    "read": false
+  },
+  {
+    "id": "notif_1776769072",
+    "title": "Practice Streak Broken",
+    "body": "Both morning Stoic practice and evening review streaks are at zero. One session resets the momentum — start tomorrow morning with 5 minutes.",
+    "severity": "warning",
+    "domain": "spirit",
+    "action": "start_morning_practice",
+    "created_at": "2026-04-21T10:57:52.150995+00:00",
+    "read": false
   }
 ]
