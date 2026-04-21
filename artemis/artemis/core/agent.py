@@ -10,42 +10,141 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 import anthropic
 import httpx
 
+from artemis.core.memory import (
+    get_context_for_prompt,
+    get_todays_stoic_quote,
+    save_session,
+    save_insight,
+    update_running_context,
+    add_open_loop,
+    close_open_loop,
+    vision_needs_intake,
+)
+from artemis.core.persona import build_system_prompt
 from artemis.core.registry import ModuleRegistry, registry
 from artemis.core.settings import get_settings
 
 log = logging.getLogger("artemis.agent")
 
-SYSTEM_PROMPT = """You are Artemis — a personal AI assistant and platform manager.
 
-## Personal Life Management
-You help manage daily life through connected modules:
-- **workout-planner** — fitness tracking, workout scheduling, readiness scores
-- **meal-planner** — nutrition logging, meal tracking, calorie and macro goals
-- **home-manager** — household tasks, assets, maintenance scheduling
-- **vehicle-manager** — vehicle fleet, fuel logs, maintenance records
+# ---------------------------------------------------------------------------
+# Memory tools — Claude can call these to persist insights mid-session
+# ---------------------------------------------------------------------------
 
-Combine data across modules when relevant — e.g. correlate workout intensity with nutrition, or flag overdue maintenance alongside upcoming tasks.
+MEMORY_TOOLS = [
+    {
+        "name": "save_session_summary",
+        "description": (
+            "Save a summary of this conversation to persistent memory. "
+            "Call this at the END of each session to capture: what was discussed, "
+            "decisions made, insights gained, and open loops remaining. "
+            "This is how Artemis remembers across sessions."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "summary": {
+                    "type": "string",
+                    "description": "Structured markdown summary: ## What Was Discussed, ## Decisions Made, ## Insights, ## Open Loops"
+                }
+            },
+            "required": ["summary"]
+        }
+    },
+    {
+        "name": "capture_insight",
+        "description": "Capture a meaningful insight, pattern, or realization about Shawn for long-term memory.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "insight": {"type": "string", "description": "The insight to capture"},
+                "category": {
+                    "type": "string",
+                    "description": "Category: 'patterns', 'decisions', 'health', 'work', 'philosophy', 'general'",
+                    "default": "general"
+                }
+            },
+            "required": ["insight"]
+        }
+    },
+    {
+        "name": "update_domain_context",
+        "description": "Update the running context for a specific life domain. Use this when Shawn shares new information about his current state.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "domain": {
+                    "type": "string",
+                    "description": "One of: body, mind, work, home, travel, spirit, wealth"
+                },
+                "updates": {
+                    "type": "object",
+                    "description": "Key-value pairs to update in that domain (e.g. {\"current_book\": \"Meditations\"})"
+                }
+            },
+            "required": ["domain", "updates"]
+        }
+    },
+    {
+        "name": "add_open_loop",
+        "description": "Add an open loop (uncommitted action) to track.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "item": {"type": "string", "description": "The open loop to track"}
+            },
+            "required": ["item"]
+        }
+    },
+    {
+        "name": "close_open_loop",
+        "description": "Mark an open loop as complete and remove it from tracking.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "item": {"type": "string", "description": "The open loop to close"}
+            },
+            "required": ["item"]
+        }
+    }
+]
 
-## Platform Self-Management
-You also manage the ongoing development of the Artemis platform itself. Use platform tools to:
-- Check open bugs and feature requests across all repositories
-- Create GitHub issues to track anything worth fixing or building
-- Check and trigger deployments to staging or production
 
-When a user mentions a limitation, bug, or improvement idea — even casually — offer to create a GitHub issue to track it.
+def _handle_memory_tool(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute a memory tool call locally."""
+    try:
+        if tool_name == "save_session_summary":
+            path = save_session(tool_input["summary"])
+            return {"saved": True, "path": str(path)}
 
-Today: {today} | User: {user_name} | Modules: {modules}
-"""
+        if tool_name == "capture_insight":
+            save_insight(
+                text=tool_input["insight"],
+                category=tool_input.get("category", "general")
+            )
+            return {"saved": True}
+
+        if tool_name == "update_domain_context":
+            update_running_context({tool_input["domain"]: tool_input["updates"]})
+            return {"updated": True}
+
+        if tool_name == "add_open_loop":
+            add_open_loop(tool_input["item"])
+            return {"added": True}
+
+        if tool_name == "close_open_loop":
+            close_open_loop(tool_input["item"])
+            return {"closed": True}
+
+        return {"error": f"Unknown memory tool: {tool_name}"}
+    except Exception as e:
+        log.exception("memory_tool_error tool=%s", tool_name)
+        return {"error": str(e)}
 
 
-def _build_system_prompt(payload: dict) -> str:
-    from datetime import date
-    return SYSTEM_PROMPT.format(
-        today=str(date.today()),
-        user_name=payload.get("name") or payload.get("email", "User"),
-        modules=", ".join(payload.get("modules", [])) or "none configured",
-    )
-
+# ---------------------------------------------------------------------------
+# Module tool execution
+# ---------------------------------------------------------------------------
 
 async def _call_module_tool(
     module_id: str,
@@ -58,18 +157,14 @@ async def _call_module_tool(
     if not mod or not mod.healthy:
         return {"error": f"Module {module_id} is unavailable"}
 
-    # Find the tool's method and endpoint from the manifest
     tool_def = next((t for t in mod.agent_tools if t["id"] == tool_id), None)
     if not tool_def:
         return {"error": f"Tool {tool_id} not found in {module_id}"}
 
     method = tool_def.get("method", "POST").upper()
     endpoint = tool_def.get("endpoint", f"/artemis/agent/{tool_id}")
-
-    # Build URL from api_base in manifest
     api_base = mod.api_base or mod.manifest_url.replace("/artemis/manifest", "")
     url = f"{api_base}{endpoint}"
-
     headers = {"Authorization": f"Bearer {token}"}
 
     try:
@@ -81,10 +176,10 @@ async def _call_module_tool(
             r.raise_for_status()
             return r.json()
     except httpx.HTTPStatusError as e:
-        log.warning(f"tool call failed {module_id}/{tool_id}: {e.response.status_code}")
+        log.warning("tool_call_failed %s/%s: %s", module_id, tool_id, e.response.status_code)
         return {"error": f"Module returned {e.response.status_code}"}
     except Exception as e:
-        log.warning(f"tool call error {module_id}/{tool_id}: {e}")
+        log.warning("tool_call_error %s/%s: %s", module_id, tool_id, e)
         return {"error": str(e)}
 
 
@@ -112,9 +207,7 @@ async def _call_platform_tool(
             labels=tool_input.get("labels"),
         )
     if op == "deployment_status":
-        return await dev_tools.get_deployment_status(
-            service=tool_input.get("service", "artemis"),
-        )
+        return await dev_tools.get_deployment_status(service=tool_input.get("service", "artemis"))
     if op == "trigger_deployment":
         return await dev_tools.trigger_deployment(
             service=tool_input["service"],
@@ -123,16 +216,17 @@ async def _call_platform_tool(
     return {"error": f"Unknown platform tool: {op}"}
 
 
+# ---------------------------------------------------------------------------
+# Main agent loop
+# ---------------------------------------------------------------------------
+
 async def run_agent(
     user_message: str,
     token_payload: dict,
     token: str,
     conversation_history: Optional[List[Dict]] = None,
 ) -> Dict[str, Any]:
-    """Run the agent with a user message. Returns the final text response.
-
-    Handles the full agentic loop: Claude → tool calls → results → Claude.
-    """
+    """Run the Artemis agent. Returns final text + tool call log."""
     settings = get_settings()
     if not settings.anthropic_api_key:
         return {
@@ -142,44 +236,53 @@ async def run_agent(
 
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     user_modules = set(token_payload.get("modules") or [])
-    tools = registry.build_claude_tools(allowed_modules=user_modules)
+    module_tools = registry.build_claude_tools(allowed_modules=user_modules)
 
     # Platform self-management tools
     dev_tools = None
+    platform_tools = []
     if settings.github_token:
         from artemis.core.dev_tools import DevTools, build_platform_tools
         dev_tools = DevTools(settings.github_token, settings.github_org)
-        tools = tools + build_platform_tools()
+        platform_tools = build_platform_tools()
 
-    system = _build_system_prompt(token_payload)
+    all_tools = module_tools + platform_tools + MEMORY_TOOLS
+
+    # Build persona system prompt with injected memory
+    memory_context = get_context_for_prompt()
+    stoic_quote = get_todays_stoic_quote()
+    needs_intake = vision_needs_intake()
+
+    system = build_system_prompt(
+        token_payload=token_payload,
+        memory_context=memory_context,
+        stoic_quote=stoic_quote,
+        needs_intake=needs_intake,
+    )
 
     messages: List[Dict] = list(conversation_history or [])
     messages.append({"role": "user", "content": user_message})
 
     tool_calls_made: List[Dict] = []
+    _MEMORY_TOOL_NAMES = {t["name"] for t in MEMORY_TOOLS}
 
-    for _ in range(8):  # max 8 agentic turns
+    for _ in range(10):  # max 10 agentic turns
         response = client.messages.create(
             model=settings.agent_model,
-            max_tokens=2048,
+            max_tokens=4096,
             system=system,
-            tools=tools if tools else anthropic.NOT_GIVEN,
+            tools=all_tools if all_tools else anthropic.NOT_GIVEN,
             messages=messages,
         )
 
-        if response.stop_reason == "end_turn":
-            text = next(
-                (b.text for b in response.content if hasattr(b, "text")), ""
-            )
+        if response.stop_reason in ("end_turn", None):
+            text = next((b.text for b in response.content if hasattr(b, "text")), "")
             return {"response": text, "tool_calls": tool_calls_made}
 
         if response.stop_reason != "tool_use":
-            text = next(
-                (b.text for b in response.content if hasattr(b, "text")), ""
-            )
+            text = next((b.text for b in response.content if hasattr(b, "text")), "")
             return {"response": text, "tool_calls": tool_calls_made}
 
-        # Process tool calls
         messages.append({"role": "assistant", "content": response.content})
         tool_results = []
 
@@ -187,7 +290,9 @@ async def run_agent(
             if block.type != "tool_use":
                 continue
 
-            if block.name.startswith("platform__"):
+            if block.name in _MEMORY_TOOL_NAMES:
+                result = _handle_memory_tool(block.name, block.input)
+            elif block.name.startswith("platform__"):
                 result = await _call_platform_tool(block.name, block.input, dev_tools)
             else:
                 resolved = registry.resolve_tool(block.name)
@@ -207,7 +312,6 @@ async def run_agent(
                 "input": block.input,
                 "result": result,
             })
-
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": block.id,
@@ -224,10 +328,8 @@ async def stream_agent(
     token_payload: dict,
     token: str,
 ) -> AsyncIterator[str]:
-    """Stream agent response as server-sent events (text/event-stream)."""
+    """Stream agent response as server-sent events."""
     result = await run_agent(user_message, token_payload, token)
-    # Yield the final text in chunks for now
-    # TODO: wire up streaming SDK when needed
     text = result["response"]
     chunk_size = 40
     for i in range(0, len(text), chunk_size):

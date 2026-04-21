@@ -1,0 +1,66 @@
+{
+  "_meta": {
+    "last_updated": "2026-04-21",
+    "note": "Updated by Artemis at each session. Do not edit manually."
+  },
+  "body": {
+    "last_workout": null,
+    "current_readiness": null,
+    "weekly_workouts_completed": 0,
+    "weekly_workouts_target": 5,
+    "nutrition_on_track": null,
+    "current_weight_lbs": null,
+    "notes": "Awaiting first session data."
+  },
+  "mind": {
+    "active_learning_goal": null,
+    "current_book": null,
+    "current_course": null,
+    "content_queue_depth": 0,
+    "last_insight_captured": null,
+    "notes": "Awaiting first session data."
+  },
+  "work": {
+    "top_priority": "Ship Phase 1",
+    "active_projects": [
+      "artemis-platform",
+      "workout-planner-commercial"
+    ],
+    "goal_completion_this_week": 0,
+    "deep_work_hours_this_week": 0,
+    "deep_work_target_hours": 20,
+    "revenue_this_month": null,
+    "revenue_target_this_month": null,
+    "notes": "Platform in late development. First commercial product (Workout Planner) being prepared."
+  },
+  "home": {
+    "open_tasks": 0,
+    "overdue_maintenance": [],
+    "notes": "Awaiting first session data."
+  },
+  "travel": {
+    "next_trip": null,
+    "days_since_last_trip": null,
+    "notes": "No trips currently planned."
+  },
+  "spirit": {
+    "morning_practice_streak": 0,
+    "evening_review_streak": 0,
+    "sabbath_observed_last_week": null,
+    "last_reflection_theme": null,
+    "notes": "Awaiting first session data.",
+    "last_evening_review": "2026-04-21"
+  },
+  "wealth": {
+    "monthly_recurring_revenue": 0,
+    "runway_months": null,
+    "financial_pressure_level": "low",
+    "notes": "Pre-revenue. Building toward first paying customer."
+  },
+  "alerts": [],
+  "open_loops": [
+    "Complete Artemis production deployment",
+    "First Artemis intake session to fill in Life Vision Document",
+    "Define 90-day commercial target for Workout Planner"
+  ]
+}

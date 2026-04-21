@@ -7,7 +7,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 from artemis.core.registry import registry
 from artemis.core.settings import get_settings
 from artemis.routers.agent import router as agent_router
+from artemis.routers.briefing import router as briefing_router
 from artemis.routers.dashboard import router as dashboard_router
+from artemis.routers.memory import router as memory_router
 from artemis.routers.modules import router as modules_router
 
 from common import create_app, ServiceConfig
@@ -36,3 +38,5 @@ app = create_app(config)
 app.include_router(modules_router, prefix=config.api_prefix)
 app.include_router(dashboard_router, prefix=config.api_prefix)
 app.include_router(agent_router, prefix=config.api_prefix)
+app.include_router(briefing_router, prefix=config.api_prefix)
+app.include_router(memory_router, prefix=config.api_prefix)
