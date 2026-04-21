@@ -30,7 +30,7 @@ def client():
 def test_health(client):
     r = client.get("/health")
     assert r.status_code == 200
-    assert r.json()["status"] == "healthy"
+    assert r.json()["status"] == "ok"
 
 
 def test_public_key(client):
@@ -112,3 +112,55 @@ def test_wrong_password(client):
     client.post("/auth/register", json={"email": email, "password": "correctpass"})
     r = client.post("/auth/login", json={"email": email, "password": "wrongpass"})
     assert r.status_code == 401
+
+
+def test_logout(client):
+    email = "logout_test@example.com"
+    r = client.post("/auth/register", json={"email": email, "password": "testpass1"})
+    token = r.json()["access_token"]
+
+    r2 = client.post("/auth/logout", headers={"Authorization": f"Bearer {token}"})
+    assert r2.status_code == 200
+    assert r2.json()["message"] == "Logged out"
+
+
+def test_gdpr_data_export(client):
+    """GET /auth/me/data returns all personal data for the authenticated user."""
+    email = "gdpr_export@example.com"
+    r = client.post("/auth/register", json={"email": email, "password": "testpass1", "full_name": "GDPR User"})
+    token = r.json()["access_token"]
+
+    r2 = client.get("/auth/me/data", headers={"Authorization": f"Bearer {token}"})
+    assert r2.status_code == 200
+    data = r2.json()
+    assert data["user"]["email"] == email
+    assert data["user"]["full_name"] == "GDPR User"
+    assert "exported_at" in data
+    assert "refresh_tokens" in data
+
+
+def test_gdpr_delete_account(client):
+    """DELETE /auth/me permanently removes the account (GDPR Art. 17)."""
+    email = "gdpr_delete@example.com"
+    r = client.post("/auth/register", json={"email": email, "password": "testpass1"})
+    assert r.status_code == 201
+    token = r.json()["access_token"]
+
+    # Delete the account
+    r2 = client.delete("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert r2.status_code == 204
+
+    # Account should no longer exist — login must fail
+    r3 = client.post("/auth/login", json={"email": email, "password": "testpass1"})
+    assert r3.status_code == 401
+
+
+def test_me_unauthenticated(client):
+    r = client.get("/auth/me")
+    assert r.status_code == 401
+
+
+def test_register_weak_password(client):
+    # Short passwords are caught by the route handler and return 400
+    r = client.post("/auth/register", json={"email": "weak@example.com", "password": "short"})
+    assert r.status_code == 400

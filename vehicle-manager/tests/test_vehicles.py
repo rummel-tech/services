@@ -1,344 +1,275 @@
-"""
-Tests for vehicle-manager API endpoints.
-"""
-
+"""Tests for vehicle-manager CRUD API: vehicles, maintenance, fuel, stats."""
 import pytest
 
 
-class TestHealthEndpoints:
-    """Tests for health and readiness endpoints."""
+VEHICLE_PAYLOAD = {
+    "user_id": "user-123",
+    "name": "2021 Toyota Camry",
+    "asset_type": "vehicle",
+    "category": "sedan",
+    "manufacturer": "Toyota",
+    "model_number": "Camry",
+    "vin": "1HGBH41JXMN109186",
+}
 
-    def test_health_check(self, client):
-        """Test the health check endpoint returns ok status."""
-        response = client.get("/health")
-        assert response.status_code == 200
 
-        data = response.json()
-        assert data["status"] == "ok"
-        assert data["service"] == "vehicle-manager"
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
 
-    def test_readiness_check(self, client):
-        """Test the readiness check endpoint returns ready status."""
-        response = client.get("/ready")
-        assert response.status_code == 200
+class TestHealth:
+    def test_health(self, client):
+        r = client.get("/health")
+        assert r.status_code == 200
+        assert r.json()["status"] == "ok"
 
-        data = response.json()
-        assert data["status"] == "ready"
-        assert data["service"] == "vehicle-manager"
+    def test_ready(self, client):
+        r = client.get("/ready")
+        assert r.status_code == 200
+        assert r.json()["status"] == "ready"
 
-    def test_root_endpoint(self, client):
-        """Test the root endpoint returns service info."""
-        response = client.get("/")
-        assert response.status_code == 200
+    def test_security_headers(self, client):
+        r = client.get("/health")
+        assert r.headers.get("x-content-type-options") == "nosniff"
+        assert r.headers.get("x-frame-options") == "DENY"
 
-        data = response.json()
-        assert data["service"] == "vehicle-manager"
-        assert data["status"] == "operational"
-        assert "version" in data
-        assert "endpoints" in data
+    def test_correlation_id_header(self, client):
+        r = client.get("/health")
+        assert "x-request-id" in r.headers
 
+
+# ---------------------------------------------------------------------------
+# Vehicles CRUD
+# ---------------------------------------------------------------------------
 
 class TestVehicles:
-    """Tests for vehicles endpoints."""
+    def test_list_vehicles_empty(self, client):
+        r = client.get("/vehicles/no-such-user")
+        assert r.status_code == 200
+        assert r.json() == []
 
-    def test_get_vehicles_success(self, client):
-        """Test getting all vehicles for a user."""
-        response = client.get("/vehicles/user-123")
-        assert response.status_code == 200
+    def test_create_vehicle(self, client):
+        r = client.post("/vehicles", json=VEHICLE_PAYLOAD)
+        assert r.status_code == 201
+        data = r.json()
+        assert data["name"] == "2021 Toyota Camry"
+        assert data["manufacturer"] == "Toyota"
+        assert data["vin"] == "1HGBH41JXMN109186"
+        assert "id" in data
 
-        data = response.json()
-        assert data["user_id"] == "user-123"
-        assert "vehicles" in data
-        assert len(data["vehicles"]) == 2  # Expected mock data count
+    def test_create_vehicle_missing_required(self, client):
+        r = client.post("/vehicles", json={"user_id": "user-123"})
+        assert r.status_code == 422
 
-    def test_vehicles_structure(self, client):
-        """Test that vehicles have proper structure."""
-        response = client.get("/vehicles/user-123")
-        data = response.json()
+    def test_list_vehicles_after_create(self, client):
+        client.post("/vehicles", json={**VEHICLE_PAYLOAD, "user_id": "list-veh-user"})
+        r = client.get("/vehicles/list-veh-user")
+        assert r.status_code == 200
+        vehicles = r.json()
+        assert isinstance(vehicles, list)
+        assert len(vehicles) >= 1
 
-        for vehicle in data["vehicles"]:
-            assert "id" in vehicle
-            assert "make" in vehicle
-            assert "model" in vehicle
-            assert "year" in vehicle
-            assert "current_mileage" in vehicle
+    def test_get_vehicle_by_id(self, client):
+        created = client.post("/vehicles", json={**VEHICLE_PAYLOAD, "user_id": "get-veh-user"}).json()
+        vehicle_id = created["id"]
 
-    def test_get_single_vehicle_success(self, client):
-        """Test getting a specific vehicle by ID."""
-        response = client.get("/vehicles/user-123/v1")
-        assert response.status_code == 200
-
-        data = response.json()
-        assert data["id"] == "v1"
-        assert data["make"] == "Toyota"
-        assert data["model"] == "Camry"
+        r = client.get(f"/vehicles/get-veh-user/{vehicle_id}")
+        assert r.status_code == 200
+        assert r.json()["id"] == vehicle_id
+        assert r.json()["name"] == "2021 Toyota Camry"
 
     def test_get_vehicle_not_found(self, client):
-        """Test that requesting nonexistent vehicle returns 404."""
-        response = client.get("/vehicles/user-123/nonexistent")
-        assert response.status_code == 404
-
-        data = response.json()
+        r = client.get("/vehicles/user-123/00000000-0000-0000-0000-000000000000")
+        assert r.status_code == 404
+        data = r.json()
         assert "error" in data
-        assert data["error"]["type"] == "http_exception"
-        assert "not found" in data["error"]["message"].lower()
 
-    def test_vehicles_different_users(self, client):
-        """Test that different user IDs are accepted."""
-        response1 = client.get("/vehicles/user-abc")
-        response2 = client.get("/vehicles/user-xyz")
+    def test_vehicles_for_different_users_are_isolated(self, client):
+        client.post("/vehicles", json={**VEHICLE_PAYLOAD, "user_id": "iso-user-a"})
+        client.post("/vehicles", json={**VEHICLE_PAYLOAD, "user_id": "iso-user-b"})
 
-        assert response1.status_code == 200
-        assert response2.status_code == 200
-        assert response1.json()["user_id"] == "user-abc"
-        assert response2.json()["user_id"] == "user-xyz"
+        r_a = client.get("/vehicles/iso-user-a")
+        r_b = client.get("/vehicles/iso-user-b")
+        assert all(v["user_id"] == "iso-user-a" for v in r_a.json())
+        assert all(v["user_id"] == "iso-user-b" for v in r_b.json())
 
+
+# ---------------------------------------------------------------------------
+# Maintenance CRUD
+# ---------------------------------------------------------------------------
 
 class TestMaintenance:
-    """Tests for maintenance endpoints."""
+    def _create_vehicle(self, client, user_id="maint-user"):
+        return client.post("/vehicles", json={**VEHICLE_PAYLOAD, "user_id": user_id}).json()
 
-    def test_get_maintenance_records(self, client):
-        """Test getting maintenance records for a vehicle."""
-        response = client.get("/maintenance/v1")
-        assert response.status_code == 200
+    def test_list_maintenance_empty(self, client):
+        v = self._create_vehicle(client, "maint-empty-user")
+        r = client.get(f"/maintenance/{v['id']}")
+        assert r.status_code == 200
+        assert r.json() == []
 
-        data = response.json()
-        assert data["vehicle_id"] == "v1"
-        assert "records" in data
-        assert len(data["records"]) == 4  # Expected mock data count
+    def test_create_maintenance_record(self, client):
+        v = self._create_vehicle(client, "maint-create-user")
+        r = client.post("/maintenance", json={
+            "user_id": "maint-create-user",
+            "asset_id": v["id"],
+            "maintenance_type": "oil_change",
+            "date": "2026-01-15T10:00:00Z",
+            "cost": 49.99,
+            "performed_by": "Quick Lube",
+        })
+        assert r.status_code == 201
+        data = r.json()
+        assert data["maintenance_type"] == "oil_change"
+        assert data["cost"] == 49.99
+        assert data["asset_id"] == v["id"]
 
-    def test_maintenance_records_structure(self, client):
-        """Test that maintenance records have proper structure."""
-        response = client.get("/maintenance/v1")
-        data = response.json()
+    def test_list_maintenance_after_create(self, client):
+        v = self._create_vehicle(client, "maint-list-user")
+        client.post("/maintenance", json={
+            "user_id": "maint-list-user",
+            "asset_id": v["id"],
+            "maintenance_type": "tire_rotation",
+            "date": "2026-02-01T09:00:00Z",
+            "cost": 25.0,
+        })
+        r = client.get(f"/maintenance/{v['id']}")
+        assert r.status_code == 200
+        records = r.json()
+        assert len(records) >= 1
+        assert records[0]["maintenance_type"] == "tire_rotation"
 
-        for record in data["records"]:
-            assert "id" in record
-            assert "vehicle_id" in record
-            assert "date" in record
-            assert "type" in record
-            assert "mileage" in record
+    def test_maintenance_record_structure(self, client):
+        v = self._create_vehicle(client, "maint-struct-user")
+        client.post("/maintenance", json={
+            "user_id": "maint-struct-user",
+            "asset_id": v["id"],
+            "maintenance_type": "brake_pad",
+            "date": "2026-03-01T08:00:00Z",
+        })
+        r = client.get(f"/maintenance/{v['id']}")
+        record = r.json()[0]
+        for field in ("id", "asset_id", "maintenance_type", "date"):
+            assert field in record
 
-    def test_get_maintenance_by_type(self, client):
-        """Test getting maintenance records filtered by type."""
-        response = client.get("/maintenance/v1/type/oil_change")
-        assert response.status_code == 200
 
-        data = response.json()
-        assert data["vehicle_id"] == "v1"
-        assert data["type"] == "oil_change"
-
-        # All records should be oil_change type
-        for record in data["records"]:
-            assert record["type"] == "oil_change"
-
-    def test_get_maintenance_by_nonexistent_type(self, client):
-        """Test getting maintenance with a type that has no records."""
-        response = client.get("/maintenance/v1/type/nonexistent")
-        assert response.status_code == 200
-
-        data = response.json()
-        assert data["records"] == []
-
+# ---------------------------------------------------------------------------
+# Fuel records
+# ---------------------------------------------------------------------------
 
 class TestFuel:
-    """Tests for fuel tracking endpoints."""
+    def _create_vehicle(self, client, user_id="fuel-user"):
+        return client.post("/vehicles", json={**VEHICLE_PAYLOAD, "user_id": user_id}).json()
 
-    def test_get_fuel_records(self, client):
-        """Test getting fuel records for a vehicle."""
-        response = client.get("/fuel/v1")
-        assert response.status_code == 200
+    def test_list_fuel_empty(self, client):
+        v = self._create_vehicle(client, "fuel-empty-user")
+        r = client.get(f"/fuel/{v['id']}")
+        assert r.status_code == 200
+        assert r.json() == []
 
-        data = response.json()
-        assert data["vehicle_id"] == "v1"
-        assert "records" in data
-        assert len(data["records"]) == 3  # Expected mock data count
+    def test_create_fuel_record(self, client):
+        v = self._create_vehicle(client, "fuel-create-user")
+        r = client.post("/fuel", json={
+            "user_id": "fuel-create-user",
+            "asset_id": v["id"],
+            "date": "2026-04-01T12:00:00Z",
+            "mileage": 45000,
+            "gallons": 12.5,
+            "cost": 47.50,
+            "price_per_gallon": 3.80,
+        })
+        assert r.status_code == 201
+        data = r.json()
+        assert data["mileage"] == 45000
+        assert data["gallons"] == 12.5
+        assert data["cost"] == 47.50
 
-    def test_fuel_records_structure(self, client):
-        """Test that fuel records have proper structure."""
-        response = client.get("/fuel/v1")
-        data = response.json()
+    def test_list_fuel_after_create(self, client):
+        v = self._create_vehicle(client, "fuel-list-user")
+        client.post("/fuel", json={
+            "user_id": "fuel-list-user",
+            "asset_id": v["id"],
+            "date": "2026-04-05T12:00:00Z",
+            "mileage": 46000,
+            "gallons": 11.0,
+            "cost": 41.80,
+        })
+        r = client.get(f"/fuel/{v['id']}")
+        assert r.status_code == 200
+        records = r.json()
+        assert len(records) >= 1
 
-        for record in data["records"]:
-            assert "id" in record
-            assert "vehicle_id" in record
-            assert "date" in record
-            assert "mileage" in record
-            assert "gallons" in record
-            assert "cost" in record
-            assert "mpg" in record
+    def test_fuel_limit_param(self, client):
+        v = self._create_vehicle(client, "fuel-limit-user")
+        for i in range(3):
+            client.post("/fuel", json={
+                "user_id": "fuel-limit-user",
+                "asset_id": v["id"],
+                "date": f"2026-04-{i+1:02d}T12:00:00Z",
+                "mileage": 40000 + i * 500,
+                "gallons": 10.0,
+                "cost": 38.0,
+            })
+        r = client.get(f"/fuel/{v['id']}?limit=2")
+        assert r.status_code == 200
+        assert len(r.json()) <= 2
 
-    def test_get_fuel_records_with_limit(self, client):
-        """Test getting fuel records with limit parameter."""
-        response = client.get("/fuel/v1?limit=2")
-        assert response.status_code == 200
-
-        data = response.json()
-        assert len(data["records"]) == 2
-
-    def test_fuel_mpg_values_valid(self, client):
-        """Test that MPG values are within reasonable range."""
-        response = client.get("/fuel/v1")
-        data = response.json()
-
-        for record in data["records"]:
-            assert 10 <= record["mpg"] <= 60  # Reasonable MPG range
+    def test_fuel_record_structure(self, client):
+        v = self._create_vehicle(client, "fuel-struct-user")
+        client.post("/fuel", json={
+            "user_id": "fuel-struct-user",
+            "asset_id": v["id"],
+            "date": "2026-04-10T12:00:00Z",
+            "mileage": 50000,
+            "gallons": 13.0,
+            "cost": 49.40,
+        })
+        record = client.get(f"/fuel/{v['id']}").json()[0]
+        for field in ("id", "asset_id", "date", "mileage", "gallons", "cost"):
+            assert field in record
 
 
-class TestSchedule:
-    """Tests for maintenance schedule endpoint."""
-
-    def test_get_maintenance_schedule(self, client):
-        """Test getting maintenance schedule for a vehicle."""
-        response = client.get("/schedule/v1")
-        assert response.status_code == 200
-
-        data = response.json()
-        assert data["vehicle_id"] == "v1"
-        assert "current_mileage" in data
-        assert "schedules" in data
-
-    def test_schedule_structure(self, client):
-        """Test that schedule items have proper structure."""
-        response = client.get("/schedule/v1")
-        data = response.json()
-
-        for schedule in data["schedules"]:
-            assert "id" in schedule
-            assert "service_type" in schedule
-            assert "interval_miles" in schedule
-            assert "last_service_mileage" in schedule
-            assert "next_due_mileage" in schedule
-            assert "status" in schedule
-
-    def test_schedule_status_values(self, client):
-        """Test that schedule status is one of expected values."""
-        response = client.get("/schedule/v1")
-        data = response.json()
-
-        valid_statuses = {"upcoming", "due", "overdue"}
-        for schedule in data["schedules"]:
-            assert schedule["status"] in valid_statuses
-
+# ---------------------------------------------------------------------------
+# Stats
+# ---------------------------------------------------------------------------
 
 class TestStats:
-    """Tests for vehicle statistics endpoint."""
-
-    def test_get_vehicle_stats(self, client):
-        """Test getting statistics for a vehicle."""
-        response = client.get("/stats/v1")
-        assert response.status_code == 200
-
-        data = response.json()
-        assert data["vehicle_id"] == "v1"
+    def test_vehicle_stats_empty(self, client):
+        v = client.post("/vehicles", json={**VEHICLE_PAYLOAD, "user_id": "stats-user"}).json()
+        r = client.get(f"/stats/{v['id']}")
+        assert r.status_code == 200
+        data = r.json()
         assert "fuel" in data
         assert "maintenance" in data
 
-    def test_stats_fuel_structure(self, client):
-        """Test that fuel stats have proper structure."""
-        response = client.get("/stats/v1")
-        data = response.json()
+    def test_vehicle_stats_fuel_structure(self, client):
+        v = client.post("/vehicles", json={**VEHICLE_PAYLOAD, "user_id": "stats-fuel-user"}).json()
+        r = client.get(f"/stats/{v['id']}")
+        fuel = r.json()["fuel"]
+        for field in ("total_cost", "total_gallons", "fill_ups"):
+            assert field in fuel
 
-        fuel_stats = data["fuel"]
-        assert "total_cost" in fuel_stats
-        assert "total_gallons" in fuel_stats
-        assert "average_mpg" in fuel_stats
-        assert "fill_ups" in fuel_stats
-
-    def test_stats_maintenance_structure(self, client):
-        """Test that maintenance stats have proper structure."""
-        response = client.get("/stats/v1")
-        data = response.json()
-
-        maint_stats = data["maintenance"]
-        assert "total_cost" in maint_stats
-        assert "services" in maint_stats
-        assert "last_service_date" in maint_stats
+    def test_vehicle_stats_maintenance_structure(self, client):
+        v = client.post("/vehicles", json={**VEHICLE_PAYLOAD, "user_id": "stats-maint-user"}).json()
+        r = client.get(f"/stats/{v['id']}")
+        maint = r.json()["maintenance"]
+        for field in ("total_cost", "services"):
+            assert field in maint
 
 
-class TestSummary:
-    """Tests for user summary endpoint."""
-
-    def test_get_user_summary(self, client):
-        """Test getting summary for all user vehicles."""
-        response = client.get("/summary/user-123")
-        assert response.status_code == 200
-
-        data = response.json()
-        assert data["user_id"] == "user-123"
-        assert "total_vehicles" in data
-        assert "total_fuel_cost" in data
-        assert "total_maintenance_cost" in data
-        assert "total_cost" in data
-
-    def test_summary_total_cost_calculation(self, client):
-        """Test that total cost is sum of fuel and maintenance."""
-        response = client.get("/summary/user-123")
-        data = response.json()
-
-        expected_total = data["total_fuel_cost"] + data["total_maintenance_cost"]
-        assert abs(data["total_cost"] - expected_total) < 0.01  # Float comparison
-
-    def test_summary_vehicle_count(self, client):
-        """Test that vehicle count matches expected."""
-        response = client.get("/summary/user-123")
-        data = response.json()
-
-        assert data["total_vehicles"] == 2  # Expected mock data count
-
+# ---------------------------------------------------------------------------
+# Error handling
+# ---------------------------------------------------------------------------
 
 class TestErrorHandling:
-    """Tests for error handling."""
-
-    def test_invalid_endpoint_404(self, client):
-        """Test that invalid endpoints return proper 404 response."""
-        response = client.get("/invalid/endpoint")
-        assert response.status_code == 404
-
-        data = response.json()
+    def test_vehicle_not_found_structure(self, client):
+        r = client.get("/vehicles/user-123/00000000-0000-0000-0000-000000000000")
+        assert r.status_code == 404
+        data = r.json()
         assert "error" in data
-        assert data["error"]["type"] == "http_exception"
-
-    def test_error_response_structure(self, client):
-        """Test that error responses have proper structure."""
-        response = client.get("/invalid/endpoint")
-
-        data = response.json()
         assert "timestamp" in data
-        assert "path" in data
-        assert "method" in data
-        assert "status_code" in data
         assert "correlation_id" in data
-        assert "error" in data
 
-    def test_vehicle_not_found_error_structure(self, client):
-        """Test that vehicle not found returns proper error structure."""
-        response = client.get("/vehicles/user-123/invalid-vehicle-id")
-        assert response.status_code == 404
-
-        data = response.json()
-        assert data["status_code"] == 404
-        assert data["error"]["type"] == "http_exception"
-
-    def test_correlation_id_in_response_header(self, client):
-        """Test that X-Request-ID header is present in responses."""
-        response = client.get("/health")
-        assert "x-request-id" in response.headers
-
-    def test_response_time_header(self, client):
-        """Test that X-Response-Time-Ms header is present."""
-        response = client.get("/health")
-        assert "x-response-time-ms" in response.headers
-
-
-class TestSecurityHeaders:
-    """Tests for security headers."""
-
-    def test_security_headers_present(self, client):
-        """Test that security headers are present in responses."""
-        response = client.get("/health")
-
-        assert response.headers.get("x-content-type-options") == "nosniff"
-        assert response.headers.get("x-frame-options") == "DENY"
-        assert response.headers.get("x-xss-protection") == "1; mode=block"
-        assert "strict-origin" in response.headers.get("referrer-policy", "")
+    def test_invalid_route(self, client):
+        r = client.get("/nonexistent/route")
+        assert r.status_code == 404

@@ -17,6 +17,7 @@ service_root = test_file.parents[1]
 services_root = test_file.parents[2]
 
 sys.path.insert(0, str(service_root))
+os.environ.setdefault("ENABLE_METRICS", "false")
 sys.path.insert(0, str(services_root))
 
 

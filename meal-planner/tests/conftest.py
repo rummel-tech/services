@@ -21,6 +21,10 @@ services_root = test_file.parents[2]
 sys.path.insert(0, str(service_root))
 sys.path.insert(0, str(services_root))
 
+# Disable Prometheus metrics in tests to prevent "Duplicated timeseries" errors
+# when multiple test modules both import the app.
+os.environ["ENABLE_METRICS"] = "false"
+
 
 def _setup_db(path: str) -> None:
     """Create schema and seed test data."""

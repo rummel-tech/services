@@ -14,7 +14,9 @@ from auth.core.jwt_service import get_public_key_pem, init_keys
 from auth.core.redis_client import close_redis, configure_redis, init_redis
 from auth.core.settings import get_settings
 from auth.routers.auth import limiter, router as auth_router
+from auth.routers.billing import router as billing_router
 from auth.routers.google import router as google_router
+from auth.routers.teams import router as teams_router
 
 from common import create_app, ServiceConfig
 
@@ -72,5 +74,7 @@ async def public_key():
 
 app.include_router(auth_router, prefix=config.api_prefix)
 app.include_router(google_router, prefix=config.api_prefix)
+app.include_router(billing_router, prefix=config.api_prefix)
+app.include_router(teams_router, prefix=config.api_prefix)
 app.include_router(public_key_router, prefix=config.api_prefix)
 app.include_router(public_key_router)

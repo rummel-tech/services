@@ -513,11 +513,32 @@ def _check_data_permission(
     x_artemis_permission: Optional[str],
     token: TokenData,
 ) -> None:
-    """For cross-module data, require explicit permission header or the user
-    to be requesting their own data with a permission-carrying Artemis token."""
-    # Standalone tokens accessing own data are permitted
-    # Artemis tokens require the correct permission in the header
-    pass  # TODO: tighten when permission grants are fully implemented
+    """For cross-module data, require the caller to hold the correct permission.
+
+    Rules:
+    - Standalone token (no permissions list): allowed to access own data only.
+    - Artemis token: must hold the specific permission for the requested data_id.
+      The required permission is declared in PERMISSION_MAP.
+    """
+    required = PERMISSION_MAP.get(data_id)
+    if required is None:
+        # Unknown data_id — reject rather than silently permit
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown data type: {data_id}",
+        )
+
+    # Artemis tokens carry explicit permissions — enforce them
+    if token.permissions:
+        if required not in token.permissions:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Token missing required permission: {required}",
+            )
+        return
+
+    # Standalone token: permit read of own data (no cross-module grant needed)
+    # The router already ensures user_id scoping on queries, so this is safe.
 
 
 PERMISSION_MAP = {

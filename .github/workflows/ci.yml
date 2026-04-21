@@ -14,6 +14,7 @@ on:
       - 'work-planner/**'
       - 'education-planner/**'
       - 'content-planner/**'
+      - 'trip-planner/**'
   push:
     branches: [main, develop]
     paths:
@@ -27,6 +28,7 @@ on:
       - 'work-planner/**'
       - 'education-planner/**'
       - 'content-planner/**'
+      - 'trip-planner/**'
   workflow_dispatch:
 
 permissions:
@@ -51,7 +53,7 @@ jobs:
         id: set-matrix
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo 'services=["auth","artemis","meal-planner","home-manager","vehicle-manager","workout-planner","work-planner","education-planner","content-planner"]' >> $GITHUB_OUTPUT
+            echo 'services=["auth","artemis","meal-planner","home-manager","vehicle-manager","workout-planner","work-planner","education-planner","content-planner","trip-planner"]' >> $GITHUB_OUTPUT
             echo "common=true" >> $GITHUB_OUTPUT
             exit 0
           fi
@@ -67,7 +69,7 @@ jobs:
           echo "common=${COMMON_CHANGED}" >> $GITHUB_OUTPUT
 
           SERVICES=()
-          for svc in auth artemis meal-planner home-manager vehicle-manager workout-planner work-planner education-planner content-planner; do
+          for svc in auth artemis meal-planner home-manager vehicle-manager workout-planner work-planner education-planner content-planner trip-planner; do
             if echo "$CHANGED" | grep -q "^${svc}/" || [[ "$COMMON_CHANGED" == "true" ]]; then
               SERVICES+=("\"${svc}\"")
             fi
@@ -163,7 +165,7 @@ jobs:
           DATABASE_URL=postgresql://test:test@localhost:5432/test_db
           ENVEOF
 
-      - name: Run tests
+      - name: Run tests with coverage
         working-directory: ${{ matrix.service }}
         run: |
           if [ -d "tests" ]; then
@@ -171,8 +173,11 @@ jobs:
               --cov=. \
               --cov-report=term-missing \
               --cov-report=xml \
+              --cov-report=json \
+              --cov-fail-under=60 \
               -v \
-              --tb=short
+              --tb=short \
+              --junitxml=test-results.xml
           else
             echo "::warning::No tests/ directory found for ${{ matrix.service }}"
           fi
@@ -182,9 +187,21 @@ jobs:
         if: always()
         with:
           name: coverage-${{ matrix.service }}
-          path: ${{ matrix.service }}/coverage.xml
+          path: |
+            ${{ matrix.service }}/coverage.xml
+            ${{ matrix.service }}/coverage.json
+            ${{ matrix.service }}/test-results.xml
           retention-days: 30
           if-no-files-found: ignore
+
+      - name: Coverage summary on PR
+        if: github.event_name == 'pull_request' && always()
+        uses: orgoro/coverage@v3.2
+        with:
+          coverageFile: ${{ matrix.service }}/coverage.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          thresholdAll: 0.60
+          thresholdNew: 0.80
 
   docker-build:
     needs: detect-changes
@@ -227,7 +244,11 @@ jobs:
       - name: Audit dependencies
         run: |
           if [ -f "${{ matrix.service }}/requirements.txt" ]; then
-            pip-audit -r ${{ matrix.service }}/requirements.txt --progress-spinner off
+            # --strict exits non-zero on any known CVE, blocking the merge.
+            pip-audit \
+              -r ${{ matrix.service }}/requirements.txt \
+              --progress-spinner off \
+              --strict
           else
             echo "::warning::No requirements.txt found for ${{ matrix.service }}"
           fi

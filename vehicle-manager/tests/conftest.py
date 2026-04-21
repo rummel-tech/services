@@ -17,6 +17,7 @@ service_root = test_file.parents[1]
 services_root = test_file.parents[2]
 
 sys.path.insert(0, str(service_root))
+os.environ.setdefault("ENABLE_METRICS", "false")
 sys.path.insert(0, str(services_root))
 
 
@@ -34,8 +35,10 @@ def _setup_db(path: str) -> None:
             manufacturer TEXT,
             model_number TEXT,
             serial_number TEXT,
+            vin TEXT,
             purchase_date TEXT,
             purchase_price REAL,
+            current_value REAL,
             condition TEXT DEFAULT 'good',
             location TEXT,
             notes TEXT,

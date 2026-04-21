@@ -11,6 +11,7 @@ from artemis.routers.dashboard import router as dashboard_router
 from artemis.routers.modules import router as modules_router
 
 from common import create_app, ServiceConfig
+from common.tasks import init_jobs_table
 
 settings = get_settings()
 
@@ -26,7 +27,7 @@ config = ServiceConfig(
     enable_metrics=True,
     enable_rate_limiting=(settings.environment == "production"),
     redis_enabled=False,
-    on_startup=[registry.initialize],
+    on_startup=[registry.initialize, init_jobs_table],
     on_shutdown=[registry.shutdown],
 )
 

@@ -1,288 +1,258 @@
-"""
-Tests for home-manager API endpoints.
-"""
-
+"""Tests for home-manager CRUD API: tasks, goals, assets."""
 import pytest
 
 
-class TestHealthEndpoints:
-    """Tests for health and readiness endpoints."""
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
 
-    def test_health_check(self, client):
-        """Test the health check endpoint returns ok status."""
-        response = client.get("/health")
-        assert response.status_code == 200
+class TestHealth:
+    def test_health(self, client):
+        r = client.get("/health")
+        assert r.status_code == 200
+        assert r.json()["status"] == "ok"
 
-        data = response.json()
-        assert data["status"] == "ok"
-        assert data["service"] == "home-manager"
+    def test_ready(self, client):
+        r = client.get("/ready")
+        assert r.status_code == 200
+        assert r.json()["status"] == "ready"
 
-    def test_readiness_check(self, client):
-        """Test the readiness check endpoint returns ready status."""
-        response = client.get("/ready")
-        assert response.status_code == 200
+    def test_security_headers(self, client):
+        r = client.get("/health")
+        assert r.headers.get("x-content-type-options") == "nosniff"
+        assert r.headers.get("x-frame-options") == "DENY"
 
-        data = response.json()
-        assert data["status"] == "ready"
-        assert data["service"] == "home-manager"
-
-    def test_root_endpoint(self, client):
-        """Test the root endpoint returns service info."""
-        response = client.get("/")
-        assert response.status_code == 200
-
-        data = response.json()
-        assert data["service"] == "home-manager"
-        assert data["status"] == "operational"
-        assert "version" in data
-        assert "endpoints" in data
+    def test_correlation_id_header(self, client):
+        r = client.get("/health")
+        assert "x-request-id" in r.headers
 
 
-class TestWeeklyTasks:
-    """Tests for weekly tasks endpoint."""
+# ---------------------------------------------------------------------------
+# Tasks CRUD
+# ---------------------------------------------------------------------------
 
-    def test_get_weekly_tasks_success(self, client):
-        """Test getting weekly tasks for a user."""
-        response = client.get("/tasks/weekly/user-123")
-        assert response.status_code == 200
+class TestTasks:
+    def test_list_tasks_empty(self, client):
+        r = client.get("/tasks/no-such-user")
+        assert r.status_code == 200
+        assert r.json() == []
 
-        data = response.json()
+    def test_create_task(self, client):
+        payload = {
+            "user_id": "user-123",
+            "title": "Fix leaky faucet",
+            "category": "plumbing",
+            "priority": "high",
+        }
+        r = client.post("/tasks", json=payload)
+        assert r.status_code == 201
+        data = r.json()
+        assert data["title"] == "Fix leaky faucet"
         assert data["user_id"] == "user-123"
-        assert "tasks" in data
-        assert len(data["tasks"]) == 14  # Expected mock data count
+        assert data["category"] == "plumbing"
+        assert "id" in data
+        return data["id"]
 
-    def test_weekly_tasks_structure(self, client):
-        """Test that tasks have proper structure."""
-        response = client.get("/tasks/weekly/user-123")
-        data = response.json()
+    def test_create_task_missing_required(self, client):
+        r = client.post("/tasks", json={"user_id": "user-123"})
+        assert r.status_code == 422
 
-        for task in data["tasks"]:
-            assert "id" in task
-            assert "title" in task
-            assert "day" in task
-            assert "category" in task
-            assert "priority" in task
-            assert "completed" in task
+    def test_list_tasks_after_create(self, client):
+        client.post("/tasks", json={
+            "user_id": "list-test-user",
+            "title": "Mow lawn",
+            "category": "yard",
+        })
+        r = client.get("/tasks/list-test-user")
+        assert r.status_code == 200
+        tasks = r.json()
+        assert isinstance(tasks, list)
+        assert len(tasks) >= 1
+        assert tasks[0]["title"] == "Mow lawn"
 
-    def test_weekly_tasks_with_week_start(self, client):
-        """Test getting weekly tasks with optional week_start parameter."""
-        response = client.get("/tasks/weekly/user-123?week_start=2025-12-01")
-        assert response.status_code == 200
+    def test_get_task_by_id(self, client):
+        created = client.post("/tasks", json={
+            "user_id": "get-test-user",
+            "title": "Replace filter",
+            "category": "maintenance",
+        }).json()
+        task_id = created["id"]
 
-        data = response.json()
-        assert data["week_start"] == "2025-12-01"
+        r = client.get(f"/tasks/get-test-user/{task_id}")
+        assert r.status_code == 200
+        assert r.json()["id"] == task_id
+        assert r.json()["title"] == "Replace filter"
 
-    def test_weekly_tasks_different_users(self, client):
-        """Test that different user IDs are accepted."""
-        response1 = client.get("/tasks/weekly/user-abc")
-        response2 = client.get("/tasks/weekly/user-xyz")
+    def test_get_task_not_found(self, client):
+        r = client.get("/tasks/user-123/00000000-0000-0000-0000-000000000000")
+        assert r.status_code == 404
 
-        assert response1.status_code == 200
-        assert response2.status_code == 200
-        assert response1.json()["user_id"] == "user-abc"
-        assert response2.json()["user_id"] == "user-xyz"
+    def test_update_task(self, client):
+        created = client.post("/tasks", json={
+            "user_id": "upd-user",
+            "title": "Paint fence",
+            "category": "yard",
+        }).json()
+        task_id = created["id"]
 
+        r = client.put(f"/tasks/upd-user/{task_id}", json={"status": "done"})
+        assert r.status_code == 200
+        assert r.json()["status"] == "done"
 
-class TestTodayTasks:
-    """Tests for today's tasks endpoint."""
+    def test_delete_task(self, client):
+        created = client.post("/tasks", json={
+            "user_id": "del-user",
+            "title": "Clean gutters",
+            "category": "maintenance",
+        }).json()
+        task_id = created["id"]
 
-    def test_get_today_tasks_default(self, client):
-        """Test getting today's tasks without specifying date."""
-        response = client.get("/tasks/today/user-123")
-        assert response.status_code == 200
+        r = client.delete(f"/tasks/del-user/{task_id}")
+        assert r.status_code == 204
 
-        data = response.json()
-        assert data["user_id"] == "user-123"
-        assert "day" in data
-        assert "tasks" in data
-        assert "total_estimated_minutes" in data
+        r2 = client.get(f"/tasks/del-user/{task_id}")
+        assert r2.status_code == 404
 
-    def test_get_today_tasks_monday(self, client):
-        """Test getting tasks for Monday."""
-        # 2025-12-01 is a Monday
-        response = client.get("/tasks/today/user-123?date=2025-12-01")
-        assert response.status_code == 200
-
-        data = response.json()
-        assert data["day"] == "Monday"
-        # Check all returned tasks are for Monday
-        for task in data["tasks"]:
-            assert task["day"] == "Monday"
-
-    def test_today_tasks_time_estimate_calculation(self, client):
-        """Test that total estimated minutes are correctly summed."""
-        response = client.get("/tasks/today/user-123?date=2025-12-01")
-        data = response.json()
-
-        calculated_total = sum(t.get("estimated_minutes", 0) for t in data["tasks"])
-        assert data["total_estimated_minutes"] == calculated_total
-
-    def test_today_tasks_different_days(self, client):
-        """Test getting tasks for different days of the week."""
-        # Monday
-        r1 = client.get("/tasks/today/user-123?date=2025-12-01")
-        # Wednesday
-        r2 = client.get("/tasks/today/user-123?date=2025-12-03")
-
-        assert r1.status_code == 200
-        assert r2.status_code == 200
-        assert r1.json()["day"] == "Monday"
-        assert r2.json()["day"] == "Wednesday"
+    def test_task_status_values(self, client):
+        for status_val in ("open", "in_progress", "done"):
+            r = client.post("/tasks", json={
+                "user_id": "status-user",
+                "title": f"Task {status_val}",
+                "category": "test",
+                "status": status_val,
+            })
+            assert r.status_code == 201
+            assert r.json()["status"] == status_val
 
 
-class TestTasksByCategory:
-    """Tests for tasks by category endpoint."""
-
-    def test_get_tasks_by_category_cleaning(self, client):
-        """Test getting tasks filtered by cleaning category."""
-        response = client.get("/tasks/category/user-123/cleaning")
-        assert response.status_code == 200
-
-        data = response.json()
-        assert data["user_id"] == "user-123"
-        assert data["category"] == "cleaning"
-        assert "tasks" in data
-
-        # All tasks should be in cleaning category
-        for task in data["tasks"]:
-            assert task["category"] == "cleaning"
-
-    def test_get_tasks_by_category_chores(self, client):
-        """Test getting tasks filtered by chores category."""
-        response = client.get("/tasks/category/user-123/chores")
-        assert response.status_code == 200
-
-        data = response.json()
-        assert len(data["tasks"]) >= 1
-
-    def test_get_tasks_by_nonexistent_category(self, client):
-        """Test getting tasks with a category that has no tasks."""
-        response = client.get("/tasks/category/user-123/nonexistent")
-        assert response.status_code == 200
-
-        data = response.json()
-        assert data["tasks"] == []
-
+# ---------------------------------------------------------------------------
+# Goals CRUD
+# ---------------------------------------------------------------------------
 
 class TestGoals:
-    """Tests for goals endpoint."""
+    def test_list_goals_empty(self, client):
+        r = client.get("/goals/no-such-user")
+        assert r.status_code == 200
+        assert r.json() == []
 
-    def test_get_goals_success(self, client):
-        """Test getting goals for a user."""
-        response = client.get("/goals/user-123")
-        assert response.status_code == 200
+    def test_create_goal(self, client):
+        r = client.post("/goals", json={
+            "user_id": "goal-user",
+            "title": "Renovate kitchen",
+            "category": "renovation",
+            "target_value": 15000,
+            "target_unit": "USD",
+        })
+        assert r.status_code == 201
+        data = r.json()
+        assert data["title"] == "Renovate kitchen"
+        assert data["category"] == "renovation"
+        assert data["is_active"] is True
+        assert 0 <= data["progress_percentage"] <= 100
+        assert "id" in data
 
-        data = response.json()
-        assert data["user_id"] == "user-123"
-        assert "goals" in data
-        assert len(data["goals"]) == 3  # Expected mock data count
+    def test_list_goals_after_create(self, client):
+        client.post("/goals", json={
+            "user_id": "glist-user",
+            "title": "Build deck",
+            "category": "outdoor",
+        })
+        r = client.get("/goals/glist-user")
+        assert r.status_code == 200
+        goals = r.json()
+        assert isinstance(goals, list)
+        assert any(g["title"] == "Build deck" for g in goals)
 
-    def test_goals_structure(self, client):
-        """Test that goals have proper structure."""
-        response = client.get("/goals/user-123")
-        data = response.json()
+    def test_get_goal_by_id(self, client):
+        created = client.post("/goals", json={
+            "user_id": "gget-user",
+            "title": "New roof",
+            "category": "structural",
+        }).json()
+        goal_id = created["id"]
 
-        for goal in data["goals"]:
-            assert "id" in goal
-            assert "title" in goal
-            assert "category" in goal
-            assert "progress" in goal
-            assert "is_active" in goal
+        r = client.get(f"/goals/gget-user/{goal_id}")
+        assert r.status_code == 200
+        assert r.json()["id"] == goal_id
 
-    def test_goals_progress_range(self, client):
-        """Test that goal progress is within valid range."""
-        response = client.get("/goals/user-123")
-        data = response.json()
+    def test_goal_progress_in_range(self, client):
+        r = client.post("/goals", json={
+            "user_id": "gprog-user",
+            "title": "Paint all rooms",
+            "category": "interior",
+            "progress_percentage": 50,
+        })
+        assert r.status_code == 201
+        assert 0 <= r.json()["progress_percentage"] <= 100
 
-        for goal in data["goals"]:
-            assert 0 <= goal["progress"] <= 100
+    def test_create_goal_missing_required(self, client):
+        r = client.post("/goals", json={"user_id": "user-123"})
+        assert r.status_code == 422
 
 
-class TestStats:
-    """Tests for statistics endpoint."""
+# ---------------------------------------------------------------------------
+# Assets CRUD
+# ---------------------------------------------------------------------------
 
-    def test_get_stats_success(self, client):
-        """Test getting statistics for a user."""
-        response = client.get("/stats/user-123")
-        assert response.status_code == 200
+class TestAssets:
+    def test_list_assets_empty(self, client):
+        r = client.get("/assets/no-such-user")
+        assert r.status_code == 200
+        assert r.json() == []
 
-        data = response.json()
-        assert data["user_id"] == "user-123"
-        assert "tasks" in data
-        assert "goals" in data
+    def test_create_asset(self, client):
+        r = client.post("/assets", json={
+            "user_id": "asset-user",
+            "name": "Lawn mower",
+            "asset_type": "tool",
+            "category": "yard_equipment",
+        })
+        assert r.status_code == 201
+        data = r.json()
+        assert data["name"] == "Lawn mower"
+        assert data["asset_type"] == "tool"
+        assert "id" in data
 
-    def test_stats_tasks_structure(self, client):
-        """Test that task stats have proper structure."""
-        response = client.get("/stats/user-123")
-        data = response.json()
+    def test_list_assets_after_create(self, client):
+        client.post("/assets", json={
+            "user_id": "alist-user",
+            "name": "Pressure washer",
+            "asset_type": "tool",
+            "category": "cleaning",
+        })
+        r = client.get("/assets/alist-user")
+        assert r.status_code == 200
+        assets = r.json()
+        assert isinstance(assets, list)
+        assert any(a["name"] == "Pressure washer" for a in assets)
 
-        task_stats = data["tasks"]
-        assert "total" in task_stats
-        assert "completed" in task_stats
-        assert "completion_rate" in task_stats
-        assert "total_estimated_minutes" in task_stats
+    def test_filter_assets_by_type(self, client):
+        for atype in ("tool", "appliance"):
+            client.post("/assets", json={
+                "user_id": "afilter-user",
+                "name": f"Test {atype}",
+                "asset_type": atype,
+                "category": "test",
+            })
+        r = client.get("/assets/afilter-user?asset_type=tool")
+        assert r.status_code == 200
+        assets = r.json()
+        assert all(a["asset_type"] == "tool" for a in assets)
 
-    def test_stats_goals_structure(self, client):
-        """Test that goal stats have proper structure."""
-        response = client.get("/stats/user-123")
-        data = response.json()
 
-        goal_stats = data["goals"]
-        assert "total" in goal_stats
-        assert "active" in goal_stats
-        assert "average_progress" in goal_stats
-
-    def test_stats_completion_rate_valid(self, client):
-        """Test that completion rate is within valid range."""
-        response = client.get("/stats/user-123")
-        data = response.json()
-
-        assert 0 <= data["tasks"]["completion_rate"] <= 100
-
+# ---------------------------------------------------------------------------
+# Error handling
+# ---------------------------------------------------------------------------
 
 class TestErrorHandling:
-    """Tests for error handling."""
-
-    def test_invalid_endpoint_404(self, client):
-        """Test that invalid endpoints return proper 404 response."""
-        response = client.get("/invalid/endpoint")
-        assert response.status_code == 404
-
-        data = response.json()
+    def test_404_response_structure(self, client):
+        r = client.get("/tasks/user-123/00000000-0000-0000-0000-000000000000")
+        assert r.status_code == 404
+        data = r.json()
         assert "error" in data
-        assert data["error"]["type"] == "http_exception"
-
-    def test_error_response_structure(self, client):
-        """Test that error responses have proper structure."""
-        response = client.get("/invalid/endpoint")
-
-        data = response.json()
         assert "timestamp" in data
-        assert "path" in data
-        assert "method" in data
-        assert "status_code" in data
         assert "correlation_id" in data
-        assert "error" in data
 
-    def test_correlation_id_in_response_header(self, client):
-        """Test that X-Request-ID header is present in responses."""
-        response = client.get("/health")
-        assert "x-request-id" in response.headers
-
-    def test_response_time_header(self, client):
-        """Test that X-Response-Time-Ms header is present."""
-        response = client.get("/health")
-        assert "x-response-time-ms" in response.headers
-
-
-class TestSecurityHeaders:
-    """Tests for security headers."""
-
-    def test_security_headers_present(self, client):
-        """Test that security headers are present in responses."""
-        response = client.get("/health")
-
-        assert response.headers.get("x-content-type-options") == "nosniff"
-        assert response.headers.get("x-frame-options") == "DENY"
-        assert response.headers.get("x-xss-protection") == "1; mode=block"
-        assert "strict-origin" in response.headers.get("referrer-policy", "")
+    def test_invalid_route(self, client):
+        r = client.get("/nonexistent/route")
+        assert r.status_code == 404

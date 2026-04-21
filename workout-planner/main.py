@@ -79,22 +79,29 @@ app = create_app(config)
 # Initialize the AI engine
 engine = AIFitnessEngine()
 
-# Include domain-specific routers
-app.include_router(healthcheck.router, prefix=config.api_prefix)  # Health checks first
-app.include_router(auth.router, prefix=config.api_prefix)
-app.include_router(goals.router, prefix=config.api_prefix)
-app.include_router(health.router, prefix=config.api_prefix)
-app.include_router(strength.router, prefix=config.api_prefix)
-app.include_router(swim.router, prefix=config.api_prefix)
-app.include_router(murph.router, prefix=config.api_prefix)
-app.include_router(readiness.router, prefix=config.api_prefix)
-app.include_router(chat.router, prefix=config.api_prefix)
-app.include_router(weekly_plans.router, prefix=config.api_prefix)
-app.include_router(daily_plans.router, prefix=config.api_prefix)
-app.include_router(meals.router, prefix=config.api_prefix)
-app.include_router(waitlist.router, prefix=config.api_prefix)
-app.include_router(workouts.router, prefix=config.api_prefix)
-app.include_router(artemis.router, prefix=config.api_prefix)
+# Include domain-specific routers under both versioned (/v1) and legacy paths.
+# Versioned is canonical; legacy routes remain for backward compat with existing clients.
+_domain_routers = [
+    healthcheck.router,
+    auth.router,
+    goals.router,
+    health.router,
+    strength.router,
+    swim.router,
+    murph.router,
+    readiness.router,
+    chat.router,
+    weekly_plans.router,
+    daily_plans.router,
+    meals.router,
+    waitlist.router,
+    workouts.router,
+    artemis.router,
+]
+for _r in _domain_routers:
+    app.include_router(_r, prefix=config.versioned_prefix)
+    if config.api_prefix != config.versioned_prefix:
+        app.include_router(_r, prefix=config.api_prefix, include_in_schema=False)
 
 
 # Domain-specific request/response models
@@ -147,4 +154,6 @@ def murph_metrics(workout: WorkoutData):
     return engine.process_murph(workout.dict())
 
 
-app.include_router(legacy_router, prefix=config.api_prefix)
+app.include_router(legacy_router, prefix=config.versioned_prefix)
+if config.api_prefix != config.versioned_prefix:
+    app.include_router(legacy_router, prefix=config.api_prefix, include_in_schema=False)

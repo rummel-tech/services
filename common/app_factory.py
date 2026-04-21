@@ -42,6 +42,10 @@ class ServiceConfig:
     # Route prefix for ALB path-based routing (e.g., "/meal-planner")
     api_prefix: str = ""
 
+    # API version string (e.g., "v1"). Routes are registered at both
+    # {api_prefix}/{api_version}/... (versioned) and {api_prefix}/... (legacy).
+    api_version: str = "v1"
+
     # Environment
     environment: str = field(
         default_factory=lambda: os.getenv("ENVIRONMENT", "development")
@@ -75,6 +79,13 @@ class ServiceConfig:
     on_startup: List[Callable] = field(default_factory=list)
     on_shutdown: List[Callable] = field(default_factory=list)
 
+    @property
+    def versioned_prefix(self) -> str:
+        """Full prefix for versioned routes: e.g. '/workout-planner/v1'."""
+        if self.api_version:
+            return f"{self.api_prefix}/{self.api_version}"
+        return self.api_prefix
+
     def __post_init__(self):
         # Allow root_path override from environment
         env_root_path = os.getenv("ROOT_PATH", "")
@@ -85,6 +96,11 @@ class ServiceConfig:
         env_prefix = os.getenv("API_PREFIX", "")
         if env_prefix and not self.api_prefix:
             self.api_prefix = env_prefix
+
+        # Allow metrics to be disabled via env var (useful in tests to avoid
+        # Prometheus "Duplicated timeseries" errors when app is imported multiple times)
+        if os.getenv("ENABLE_METRICS", "").lower() == "false":
+            self.enable_metrics = False
 
         # Parse CORS origins from environment if set
         env_cors = os.getenv("CORS_ORIGINS", "")

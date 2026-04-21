@@ -40,6 +40,12 @@ class AuthSettings(BaseServiceSettings):
     # Google OAuth — client verifies on device, backend validates ID token
     google_client_id: str = ""
 
+    # Stripe billing
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_pro_price_id: str = ""   # Stripe Price ID for Pro plan
+    stripe_team_price_id: str = ""  # Stripe Price ID for Team plan
+
     cors_origins: Union[List[str], str] = [
         "http://localhost:3000",
         "http://localhost:8080",

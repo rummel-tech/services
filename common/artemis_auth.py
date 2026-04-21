@@ -56,7 +56,8 @@ def fetch_artemis_public_key(*, force: bool = False) -> Optional[str]:
         url = f"{get_artemis_auth_url()}/auth/public-key"
         r = httpx.get(url, timeout=3.0)
         if r.status_code == 200:
-            _artemis_public_key = r.json()["public_key"]
+            data = r.json()
+            _artemis_public_key = data.get("public_key") or data
             _artemis_public_key_fetched_at = now
             return _artemis_public_key
     except Exception:
@@ -81,6 +82,8 @@ def _decode_artemis_token(raw: str, *, environment: str = "development") -> Any:
                 "email": payload.get("email", ""),
                 "jti": payload.get("jti"),
                 "exp": payload.get("exp"),
+                "permissions": payload.get("permissions", []),
+                "modules": payload.get("modules", []),
             }
         except JWTError as e:
             raise HTTPException(
@@ -99,6 +102,8 @@ def _decode_artemis_token(raw: str, *, environment: str = "development") -> Any:
         return {
             "user_id": unverified.get("sub", "dev-user"),
             "email": unverified.get("email", ""),
+            "permissions": unverified.get("permissions", []),
+            "modules": unverified.get("modules", []),
         }
 
     raise HTTPException(
@@ -146,12 +151,23 @@ def create_artemis_token_dependency(
 
         if unverified.get("iss") == "artemis-auth":
             claims = _decode_artemis_token(raw, environment=env)
-            return token_data_class(
-                user_id=claims["user_id"],
-                email=claims["email"],
-                jti=claims.get("jti"),
-                exp=claims.get("exp"),
-            )
+            try:
+                return token_data_class(
+                    user_id=claims["user_id"],
+                    email=claims["email"],
+                    jti=claims.get("jti"),
+                    exp=claims.get("exp"),
+                    permissions=claims.get("permissions", []),
+                    modules=claims.get("modules", []),
+                )
+            except TypeError:
+                # token_data_class doesn't accept permissions/modules — fall back
+                return token_data_class(
+                    user_id=claims["user_id"],
+                    email=claims["email"],
+                    jti=claims.get("jti"),
+                    exp=claims.get("exp"),
+                )
 
         # Standalone token — delegate to the service's own decoder
         token_data = standalone_decoder(raw)

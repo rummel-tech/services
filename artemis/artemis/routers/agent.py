@@ -1,10 +1,15 @@
 """AI agent endpoints — HTTP chat and WebSocket."""
 import json
 import logging
+import sys
+import os
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Header, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+from common.tasks import enqueue, get_job, task
 
 from artemis.core.agent import run_agent, stream_agent
 from artemis.core.auth import validate_token
@@ -17,6 +22,7 @@ router = APIRouter(prefix="/agent", tags=["agent"])
 class ChatRequest(BaseModel):
     message: str
     history: Optional[List[Dict[str, Any]]] = None
+    async_mode: bool = False  # if True, dispatches as background job and returns job_id immediately
 
 
 class ChatResponse(BaseModel):
@@ -24,14 +30,46 @@ class ChatResponse(BaseModel):
     tool_calls: List[Dict[str, Any]] = []
 
 
-@router.post("/chat", response_model=ChatResponse)
+class AsyncChatResponse(BaseModel):
+    job_id: str
+    status: str = "pending"
+
+
+@task("agent_chat")
+async def _run_agent_task(message: str, token_payload: dict, token: str, history: list) -> dict:
+    return await run_agent(
+        user_message=message,
+        token_payload=token_payload,
+        token=token,
+        conversation_history=history or [],
+    )
+
+
+@router.post("/chat")
 async def chat(
     body: ChatRequest,
+    background_tasks: BackgroundTasks,
     token_payload: dict = Depends(validate_token),
     authorization: Optional[str] = Header(None),
-) -> ChatResponse:
-    """Send a message to the Artemis AI agent and get a response."""
+):
+    """Send a message to the Artemis AI agent.
+
+    - Synchronous (default): waits for the full response (use WebSocket for streaming).
+    - Async (async_mode=true): dispatches immediately, returns job_id. Poll GET /agent/jobs/{job_id}.
+    """
     token = authorization.split(" ", 1)[1] if authorization else ""
+
+    if body.async_mode:
+        job_id = enqueue(
+            background_tasks,
+            _run_agent_task,
+            message=body.message,
+            token_payload=token_payload,
+            token=token,
+            history=body.history or [],
+        )
+        return AsyncChatResponse(job_id=job_id)
+
     result = await run_agent(
         user_message=body.message,
         token_payload=token_payload,
@@ -39,6 +77,19 @@ async def chat(
         conversation_history=body.history,
     )
     return ChatResponse(response=result["response"], tool_calls=result["tool_calls"])
+
+
+@router.get("/jobs/{job_id}")
+async def get_job_status(
+    job_id: str,
+    token_payload: dict = Depends(validate_token),
+):
+    """Poll the status of an async agent chat job."""
+    job = get_job(job_id)
+    if not job:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
 
 @router.get("/tools")

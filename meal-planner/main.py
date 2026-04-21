@@ -244,8 +244,11 @@ async def delete_meal(user_id: str, meal_id: uuid.UUID, token: TokenData = Depen
         logger.info("Deleted meal %s for user %s", meal_id, user_id)
 
 
-app.include_router(artemis_router.router, prefix=config.api_prefix)
-app.include_router(router, prefix=config.api_prefix)
+app.include_router(artemis_router.router, prefix=config.versioned_prefix)
+app.include_router(router, prefix=config.versioned_prefix)
+# Legacy routes (backward compat — not shown in OpenAPI docs)
+app.include_router(artemis_router.router, prefix=config.api_prefix, include_in_schema=False)
+app.include_router(router, prefix=config.api_prefix, include_in_schema=False)
 
 if __name__ == "__main__":
     import uvicorn

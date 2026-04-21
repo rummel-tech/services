@@ -88,11 +88,13 @@ USE_SQLITE = is_sqlite(get_database_url())
 
 
 def _parse_row(row_dict: dict) -> dict:
-    if USE_SQLITE and isinstance(row_dict.get("context"), str):
-        try:
-            row_dict["context"] = json.loads(row_dict["context"])
-        except (json.JSONDecodeError, ValueError):
-            row_dict["context"] = {}
+    if USE_SQLITE:
+        for field in ("context", "tags"):
+            if isinstance(row_dict.get(field), str):
+                try:
+                    row_dict[field] = json.loads(row_dict[field])
+                except (json.JSONDecodeError, ValueError):
+                    row_dict[field] = {} if field == "context" else []
     return row_dict
 
 
@@ -140,7 +142,7 @@ async def list_vehicles(user_id: str, token: TokenData = Depends(require_token))
         )
         cur.execute(query, (user_id,))
         rows = cur.fetchall()
-        return [Asset(**dict_from_row(row, USE_SQLITE)) for row in rows]
+        return [Asset(**_parse_row(dict_from_row(row, USE_SQLITE))) for row in rows]
 
 
 @router.post("/vehicles", response_model=Asset, status_code=status.HTTP_201_CREATED)
@@ -358,10 +360,15 @@ async def get_vehicle_stats(vehicle_id: UUID, token: TokenData = Depends(require
         }
 
 
-app.include_router(artemis_router.router, prefix=config.api_prefix)
-app.include_router(healthcheck_router.router, prefix=config.api_prefix)
-app.include_router(work_planner_router.router, prefix=config.api_prefix)
-app.include_router(router, prefix=config.api_prefix)
+app.include_router(artemis_router.router, prefix=config.versioned_prefix)
+app.include_router(healthcheck_router.router, prefix=config.versioned_prefix)
+app.include_router(work_planner_router.router, prefix=config.versioned_prefix)
+app.include_router(router, prefix=config.versioned_prefix)
+# Legacy routes (backward compat — not shown in OpenAPI docs)
+app.include_router(artemis_router.router, prefix=config.api_prefix, include_in_schema=False)
+app.include_router(healthcheck_router.router, prefix=config.api_prefix, include_in_schema=False)
+app.include_router(work_planner_router.router, prefix=config.api_prefix, include_in_schema=False)
+app.include_router(router, prefix=config.api_prefix, include_in_schema=False)
 
 if __name__ == "__main__":
     import uvicorn

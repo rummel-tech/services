@@ -11,6 +11,7 @@ from pydantic import BaseModel, EmailStr
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from auth.core.audit import log_event
 from auth.core.database import get_cursor, get_db
 from auth.core.jwt_service import (
     create_access_token,
@@ -152,6 +153,7 @@ async def register(request: Request, body: UserRegister):
         conn.commit()
 
     user = _get_user_by_id(user_id)
+    log_event("register", request, user_id=user_id)
     return _issue_token_pair(user)
 
 
@@ -160,14 +162,17 @@ async def register(request: Request, body: UserRegister):
 async def login(request: Request, body: UserLogin):
     user = _get_user_by_email(body.email)
     if not user or not user.get("hashed_password"):
+        log_event("login_failed", request, metadata={"email": body.email, "reason": "invalid_credentials"})
         raise HTTPException(status_code=401, detail="Incorrect email or password")
 
     if not _verify_password(body.password, user["hashed_password"]):
+        log_event("login_failed", request, metadata={"email": body.email, "reason": "invalid_credentials"})
         raise HTTPException(status_code=401, detail="Incorrect email or password")
 
     if not user["is_active"]:
         raise HTTPException(status_code=403, detail="Account is inactive")
 
+    log_event("login_success", request, user_id=user["id"])
     return _issue_token_pair(user)
 
 
@@ -188,24 +193,29 @@ async def refresh(
     if not user or not user["is_active"]:
         raise HTTPException(status_code=401, detail="User not found or inactive")
 
+    log_event("token_refresh", request, user_id=user["id"])
     return _issue_token_pair(user)
 
 
 @router.post("/logout")
 async def logout(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
     if credentials is None:
         raise HTTPException(status_code=401, detail="Missing token")
 
     payload = decode_token(credentials.credentials)
+    user_id = None
     if payload:
+        user_id = payload.get("sub")
         jti = payload.get("jti")
         exp = payload.get("exp")
         if jti and exp:
             ttl = max(int(exp) - int(time.time()), 60)
             blacklist_token(jti, ttl)
 
+    log_event("logout", request, user_id=user_id)
     return {"message": "Logged out"}
 
 
@@ -219,3 +229,87 @@ async def me(current_user: dict = Depends(get_current_user)):
         enabled_modules=json.loads(current_user.get("enabled_modules") or "[]"),
         permissions=json.loads(current_user.get("permissions") or "[]"),
     )
+
+
+@router.get("/me/data")
+async def export_my_data(request: Request, current_user: dict = Depends(get_current_user)):
+    """GDPR Article 20 — export all personal data held for the authenticated user."""
+    with get_db() as conn:
+        cur = get_cursor(conn)
+        cur.execute(
+            "SELECT id, user_id, expires_at, created_at FROM refresh_tokens WHERE user_id = ?",
+            (current_user["id"],),
+        )
+        tokens = [dict(row) for row in cur.fetchall()]
+
+    log_event("gdpr_export", request, user_id=current_user["id"])
+    return {
+        "exported_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+        "user": {
+            "id": current_user["id"],
+            "email": current_user["email"],
+            "full_name": current_user.get("full_name"),
+            "google_id": current_user.get("google_id"),
+            "is_active": bool(current_user["is_active"]),
+            "is_admin": bool(current_user.get("is_admin")),
+            "enabled_modules": json.loads(current_user.get("enabled_modules") or "[]"),
+            "permissions": json.loads(current_user.get("permissions") or "[]"),
+            "created_at": current_user.get("created_at"),
+            "updated_at": current_user.get("updated_at"),
+        },
+        "refresh_tokens": tokens,
+    }
+
+
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_account(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    current_user: dict = Depends(get_current_user),
+):
+    """GDPR Article 17 — right to erasure. Permanently deletes the account and all tokens."""
+    user_id = current_user["id"]
+
+    # Blacklist current token so it can't be reused
+    if credentials:
+        payload = decode_token(credentials.credentials)
+        if payload:
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+            if jti and exp:
+                ttl = max(int(exp) - int(time.time()), 60)
+                blacklist_token(jti, ttl)
+
+    log_event("gdpr_delete", request, user_id=user_id)
+    with get_db() as conn:
+        cur = get_cursor(conn)
+        # refresh_tokens cascade-delete with users FK
+        cur.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        conn.commit()
+
+
+@router.get("/audit-log")
+async def get_audit_log(
+    limit: int = 100,
+    event: Optional[str] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Return audit log entries. Admin only."""
+    if not current_user.get("is_admin"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    with get_db() as conn:
+        cur = get_cursor(conn)
+        if event:
+            cur.execute(
+                "SELECT * FROM audit_logs WHERE event = ? ORDER BY created_at DESC LIMIT ?",
+                (event, limit),
+            )
+        else:
+            cur.execute(
+                "SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            )
+        rows = cur.fetchall()
+
+    return [dict(r) for r in rows]

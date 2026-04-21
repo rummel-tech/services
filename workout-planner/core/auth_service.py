@@ -27,6 +27,8 @@ class TokenData(BaseModel):
     email: Optional[str] = None
     jti: Optional[str] = None
     exp: Optional[int] = None
+    permissions: list[str] = []
+    modules: list[str] = []
 
 
 class UserCreate(BaseModel):
