@@ -45,7 +45,7 @@ def test_token_decode_extracts_jti_and_exp():
     assert token_data.exp > int(time.time())  # Expiration in future
 
 
-@patch('redis_client.get_redis')
+@patch('common.redis_client.get_redis')
 def test_blacklist_with_redis_available(mock_get_redis):
     """Test blacklist_token when Redis is available."""
     # Mock Redis client
@@ -59,7 +59,7 @@ def test_blacklist_with_redis_available(mock_get_redis):
     mock_redis.setex.assert_called_once_with("blacklist:test-jti-456", 7200, "1")
 
 
-@patch('redis_client.get_redis')
+@patch('common.redis_client.get_redis')
 def test_blacklist_check_with_redis_available(mock_get_redis):
     """Test is_token_blacklisted when Redis is available."""
     # Mock Redis client
@@ -74,7 +74,7 @@ def test_blacklist_check_with_redis_available(mock_get_redis):
     mock_redis.exists.assert_called_once_with("blacklist:test-jti-789")
 
 
-@patch('redis_client.get_redis')
+@patch('common.redis_client.get_redis')
 def test_blacklist_check_token_not_blacklisted(mock_get_redis):
     """Test is_token_blacklisted returns False for non-blacklisted token."""
     # Mock Redis client

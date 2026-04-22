@@ -47,7 +47,7 @@ def test_cache_graceful_fallback():
     assert call_count == 2  # Called again (no caching)
 
 
-@patch('cache.get_redis')
+@patch('common.cache.redis_client.get_redis')
 def test_cache_with_redis_available(mock_get_redis):
     """Test caching when Redis is available."""
     # Mock Redis client
@@ -70,7 +70,7 @@ def test_cache_with_redis_available(mock_get_redis):
     mock_redis.setex.assert_called_once()
 
 
-@patch('cache.get_redis')
+@patch('common.cache.redis_client.get_redis')
 def test_cache_hit(mock_get_redis):
     """Test cache hit returns cached value without executing function."""
     import json
@@ -95,7 +95,7 @@ def test_cache_hit(mock_get_redis):
     assert call_count == 0  # Function not called
 
 
-@patch('cache.get_redis')
+@patch('common.cache.redis_client.get_redis')
 def test_invalidate_cache(mock_get_redis):
     """Test cache invalidation."""
     mock_redis = MagicMock()
@@ -110,7 +110,7 @@ def test_invalidate_cache(mock_get_redis):
     mock_redis.delete.assert_called_once_with("key1", "key2", "key3")
 
 
-@patch('cache.get_redis')
+@patch('common.cache.redis_client.get_redis')
 def test_invalidate_user_cache(mock_get_redis):
     """Test user-specific cache invalidation."""
     mock_redis = MagicMock()
@@ -134,7 +134,7 @@ def test_cache_stats_without_redis():
     assert stats == {"available": False}
 
 
-@patch('cache.get_redis')
+@patch('common.cache.redis_client.get_redis')
 def test_cache_stats_with_redis(mock_get_redis):
     """Test cache stats when Redis available."""
     mock_redis = MagicMock()
@@ -153,7 +153,7 @@ def test_cache_stats_with_redis(mock_get_redis):
     assert stats["hit_rate"] == 0.75  # 150 / (150 + 50)
 
 
-@patch('cache.get_redis')
+@patch('common.cache.redis_client.get_redis')
 def test_cache_serialization_with_default_handler(mock_get_redis):
     """Test that serialization uses default=str for complex objects."""
     mock_redis = MagicMock()

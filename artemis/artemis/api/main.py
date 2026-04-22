@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from artemis.core.monitor import start_monitoring, stop_monitoring
+from artemis.core.rate_limit import limiter
 from artemis.core.registry import registry
 from artemis.core.settings import get_settings
 from artemis.routers.agent import router as agent_router
@@ -41,6 +42,15 @@ config = ServiceConfig(
 )
 
 app = create_app(config)
+
+# Wire slowapi limiter for AI endpoints (production-enforced; permissive in dev/test)
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 app.include_router(modules_router, prefix=config.api_prefix)
 app.include_router(dashboard_router, prefix=config.api_prefix)

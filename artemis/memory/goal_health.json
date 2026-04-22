@@ -1,17 +1,4 @@
 {
-  "test_goal_1": {
-    "id": "test_goal_1",
-    "title": "Test goal for retirement",
-    "domain": "work",
-    "status": "retired",
-    "created_at": "2026-04-21",
-    "last_mentioned": "2026-04-21",
-    "last_progress": "2026-04-21",
-    "mention_count": 3,
-    "progress_events": 0,
-    "retired_at": "2026-04-21",
-    "retirement_reason": "Test complete"
-  },
   "project__artemis-platform": {
     "id": "project__artemis-platform",
     "title": "artemis-platform",
@@ -34,9 +21,9 @@
     "mention_count": 1,
     "progress_events": 0
   },
-  "priority__artemis_intake_+_workout_planner_launch": {
-    "id": "priority__artemis_intake_+_workout_planner_launch",
-    "title": "Artemis intake + Workout Planner launch",
+  "priority__deploy_artemis_to_production": {
+    "id": "priority__deploy_artemis_to_production",
+    "title": "Deploy Artemis to production",
     "domain": "work",
     "status": "active",
     "created_at": "2026-04-21",
@@ -55,5 +42,18 @@
     "last_progress": "2026-04-21",
     "mention_count": 1,
     "progress_events": 0
+  },
+  "test_goal_1": {
+    "id": "test_goal_1",
+    "title": "Test goal for retirement",
+    "domain": "work",
+    "status": "retired",
+    "created_at": "2026-04-21",
+    "last_mentioned": "2026-04-21",
+    "last_progress": "2026-04-21",
+    "mention_count": 1,
+    "progress_events": 0,
+    "retired_at": "2026-04-21",
+    "retirement_reason": "Test complete"
   }
 }

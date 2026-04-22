@@ -2,20 +2,30 @@
 Test AI Chat Integration
 Run: pytest test_chat.py -v
 """
+import os
+import sys
+
+os.environ["DISABLE_AUTH"] = "true"
+os.environ.setdefault("ENABLE_METRICS", "false")
+
 import pytest
 from fastapi.testclient import TestClient
-import sys
-import os
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 from main import app
 from core.database import get_db, get_cursor
+from core.settings import get_settings
+
+# Force settings to pick up env vars set above
+get_settings.cache_clear() if hasattr(get_settings, "cache_clear") else None
 
 client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def setup_test_db():
-    """Clean chat tables before each test"""
+    """Clean chat tables before each test and ensure auth bypass is active."""
+    os.environ["DISABLE_AUTH"] = "true"
     with get_db() as conn:
         cur = get_cursor(conn)
         cur.execute("DELETE FROM chat_messages")

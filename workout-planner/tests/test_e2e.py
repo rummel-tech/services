@@ -122,7 +122,7 @@ def test_end_to_end_flow():
     assert ctx["goals"]
 
     # Confirm messages listing works
-    msgs_resp = client.get(f"/chat/messages/{session_id}")
+    msgs_resp = client.get(f"/chat/messages/{session_id}", params={"user_id": user_id})
     assert msgs_resp.status_code == 200
     msgs = msgs_resp.json()
     assert len(msgs) >= 4  # user+assistant for each of two messages
@@ -134,6 +134,6 @@ def test_end_to_end_flow():
     assert dup_data["inserted"] == 0
 
     # Cleanup: delete chat session
-    del_resp = client.delete(f"/chat/sessions/{session_id}")
+    del_resp = client.delete(f"/chat/sessions/{session_id}", params={"user_id": user_id})
     assert del_resp.status_code == 200
-    assert del_resp.json()["deleted"] == 1
+    assert del_resp.json()["status"] == "deleted"

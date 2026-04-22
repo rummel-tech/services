@@ -5,7 +5,7 @@ import sys
 import os
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -13,6 +13,7 @@ from common.tasks import enqueue, get_job, task
 
 from artemis.core.agent import run_agent, stream_agent
 from artemis.core.auth import validate_token
+from artemis.core.rate_limit import AI_CHAT_LIMIT, limiter
 from artemis.core.registry import registry
 
 log = logging.getLogger("artemis.agent_router")
@@ -46,7 +47,9 @@ async def _run_agent_task(message: str, token_payload: dict, token: str, history
 
 
 @router.post("/chat")
+@limiter.limit(AI_CHAT_LIMIT)
 async def chat(
+    request: Request,
     body: ChatRequest,
     background_tasks: BackgroundTasks,
     token_payload: dict = Depends(validate_token),

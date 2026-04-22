@@ -7,11 +7,12 @@ POST /research/improve    — suggest GitHub issues from tool failures
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from artemis.core.auth import validate_token
 from artemis.core.external_agents import research, summarize, suggest_platform_improvements
+from artemis.core.rate_limit import RESEARCH_LIMIT, limiter
 
 log = logging.getLogger("artemis.research_router")
 router = APIRouter(prefix="/research", tags=["research"])
@@ -35,7 +36,9 @@ class ImprovementRequest(BaseModel):
 
 
 @router.post("/query")
+@limiter.limit(RESEARCH_LIMIT)
 async def run_research(
+    request: Request,
     body: ResearchRequest,
     token_payload: dict = Depends(validate_token),
 ):
@@ -49,7 +52,9 @@ async def run_research(
 
 
 @router.post("/summarize")
+@limiter.limit(RESEARCH_LIMIT)
 async def run_summarize(
+    request: Request,
     body: SummarizeRequest,
     token_payload: dict = Depends(validate_token),
 ):
@@ -63,7 +68,9 @@ async def run_summarize(
 
 
 @router.post("/improve")
+@limiter.limit(RESEARCH_LIMIT)
 async def continuous_improvement(
+    request: Request,
     body: ImprovementRequest,
     token_payload: dict = Depends(validate_token),
 ):

@@ -20,7 +20,9 @@ from core.ai_chat_service import chat_service
 
 
 def _auth_bypass() -> bool:
-    return settings.disable_auth and settings.environment == "development"
+    import os
+    disable_auth_env = os.getenv("DISABLE_AUTH", "").lower() == "true"
+    return (settings.disable_auth or disable_auth_env) and settings.environment == "development"
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 

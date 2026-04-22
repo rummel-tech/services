@@ -9,10 +9,11 @@ DELETE /workers/signals/{type} — clear a specific signal
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from artemis.core.auth import validate_token
+from artemis.core.rate_limit import AI_CHAT_LIMIT, limiter
 from artemis.core.registry import registry
 from artemis.core.signals import (
     clear_signal,
@@ -33,7 +34,6 @@ router = APIRouter(prefix="/workers", tags=["workers"])
 class WorkerChatRequest(BaseModel):
     message: str
     history: Optional[list] = None
-    async_mode: bool = False
 
 
 class SignalPublish(BaseModel):
@@ -75,7 +75,9 @@ async def list_workers(token_payload: dict = Depends(validate_token)):
 
 
 @router.post("/{agent_id}/chat")
+@limiter.limit(AI_CHAT_LIMIT)
 async def worker_chat(
+    request: Request,
     agent_id: str,
     body: WorkerChatRequest,
     token_payload: dict = Depends(validate_token),
@@ -91,14 +93,6 @@ async def worker_chat(
         )
 
     token = authorization.split(" ", 1)[1] if authorization else ""
-
-    if body.async_mode:
-        from fastapi import BackgroundTasks
-        from common.tasks import enqueue, task
-
-        # Can't inject BackgroundTasks in this path easily — run synchronously for now
-        # TODO: wire async mode through BackgroundTasks dependency injection
-        pass
 
     result = await agent.run(
         user_message=body.message,
