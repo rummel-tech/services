@@ -331,7 +331,8 @@ def agent_get_todays_workout(
     body: Optional[dict] = None,
     token: TokenData = Depends(require_token),
 ) -> dict:
-    target_date = date or (body or {}).get("date") or str(datetime.now(timezone.utc).date())
+    from datetime import date as _date
+    target_date = date or (body or {}).get("date") or str(_date.today())
     user_id = token.user_id
     row = _fetch_daily_plan(user_id, target_date)
     if not row:
